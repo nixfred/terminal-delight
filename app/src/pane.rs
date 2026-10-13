@@ -736,6 +736,68 @@ struct LinkSpan {
     last: usize,
 }
 
+/// Codex renders file references as parenthesized paths across indented rows,
+/// sometimes breaking at a slash before the edge. The delimiters establish
+/// that join without a width heuristic; blank rows and interior spaces stop it.
+fn delimited_wrapped_link(rows: &[Vec<char>], vrow: usize, vcol: usize) -> Option<LinkSpan> {
+    let last = vrow.min(rows.len().checked_sub(1)?);
+    (0..=last).rev().find_map(|top| {
+        rows[top]
+            .iter()
+            .enumerate()
+            .rev()
+            .filter(|(_, ch)| **ch == '(')
+            .find_map(|(start, _)| wrapped_link_from(rows, top, start, vrow, vcol))
+    })
+}
+
+/// Read one explicit reference, discarding only the padding between its rows.
+fn wrapped_link_from(
+    rows: &[Vec<char>],
+    top: usize,
+    start: usize,
+    vrow: usize,
+    vcol: usize,
+) -> Option<LinkSpan> {
+    let head: String = rows[top][start + 1..].iter().collect();
+    link_at(head.trim_end(), 0)?;
+    let mut text = String::new();
+    let mut clicked = false;
+    let mut depth = 0;
+    for (r, row) in rows.iter().enumerate().skip(top) {
+        let begin = if r == top {
+            start
+        } else {
+            row.iter().position(|c| !c.is_whitespace())?
+        };
+        let end = row.iter().rposition(|c| !c.is_whitespace())? + 1;
+        for (c, ch) in row.iter().enumerate().take(end).skip(begin) {
+            if ch.is_whitespace() {
+                return None;
+            }
+            clicked |= r == vrow && c == vcol;
+            text.push(*ch);
+            match ch {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                _ => {}
+            }
+            if depth == 0 {
+                return (r > top && clicked)
+                    .then(|| {
+                        Some(LinkSpan {
+                            link: link_of_token(&text)?,
+                            first: top,
+                            last: r,
+                        })
+                    })
+                    .flatten();
+            }
+        }
+    }
+    None
+}
+
 /// Every reading of the link under a click on grid row `vrow`, column `vcol`,
 /// the most-joined first. Pure: testable without a live grid.
 ///
@@ -785,7 +847,9 @@ fn wrapped_link_candidates(
         (r, to) = (r + 1, b);
     }
     let middle = text(vrow, start, end);
-    let mut out: Vec<LinkSpan> = Vec::new();
+    let mut out: Vec<LinkSpan> = delimited_wrapped_link(rows, vrow, vcol)
+        .into_iter()
+        .collect();
     for up in (0..=ups.len()).rev() {
         for down in (0..=downs.len()).rev() {
             let mut tok: String = ups[..up].iter().rev().map(String::as_str).collect();
@@ -12559,6 +12623,56 @@ mod tests {
             None,
             |_| true,
         )
+    }
+
+    #[test]
+    fn codex_parenthesized_path_rejoins_indented_rows_before_the_right_edge() {
+        let rows = padded_grid(
+            100,
+            &[
+                "  Deliverable: Song comparison with listening links and notes (/home/parker/Work/",
+                "  reports/2026-10-13-omarchy-theme-songs.html)",
+                "",
+                "  unrelated.md",
+            ],
+        );
+        let whole = Some((
+            "/home/parker/Work/reports/2026-10-13-omarchy-theme-songs.html".into(),
+            0,
+            1,
+        ));
+        for (r, row) in rows.iter().enumerate().take(2) {
+            let first = if r == 0 {
+                row.iter().position(|c| *c == '(').unwrap()
+            } else {
+                2
+            };
+            let last = row.iter().rposition(|c| !c.is_whitespace()).unwrap();
+            for c in first..=last {
+                assert_eq!(opens(&rows, &[false; 4], r, c), whole, "r{r} c{c}");
+            }
+        }
+        assert_eq!(opens(&rows, &[false; 4], 0, 5), None);
+        assert_eq!(opens(&rows, &[false; 4], 1, 0), None);
+        assert_eq!(opens(&rows, &[false; 4], 3, 5), None);
+        for lines in [
+            vec!["  (/home/parker/", "", "  notes.md)"],
+            vec!["  (/home/parker/", "  ordinary prose)"],
+            vec!["  (ordinary", "  prose)"],
+        ] {
+            let rows = padded_grid(100, &lines);
+            assert_eq!(delimited_wrapped_link(&rows, 0, 4), None);
+        }
+        let rows = padded_grid(
+            100,
+            &["  (file:///home/parker/", "  Work/", "  report.html)"],
+        );
+        for r in 0..3 {
+            assert_eq!(
+                opens(&rows, &[false; 3], r, 5),
+                Some(("file:///home/parker/Work/report.html".into(), 0, 2))
+            );
+        }
     }
 
     #[test]
