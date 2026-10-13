@@ -351,6 +351,17 @@ fn chip_label(
 /// prompt that printed it, and it goes when you are done with it. Dropping
 /// this drops the view, and the view gives its texture back as it goes (see
 /// [`crate::docview`]), so closing is nothing more than `self.float = None`.
+///
+/// # A clip over a square
+///
+/// A video opens as a clip in a box of its own, above whatever square is
+/// already up, and closes itself when it plays out. The square it covers is
+/// not closed: it rides in [`FloatingDoc::below`], drawn and deaf, and comes
+/// back on top when the clip goes. `self.float` is always the top box, so
+/// every press, key and control keeps reaching the box a person sees on top
+/// without knowing there is anything beneath it. The stack is two deep at
+/// most: a second clip replaces the first, and any other document replaces
+/// both.
 pub(crate) struct FloatingDoc {
     view: gpui::Entity<crate::docview::DocumentView>,
     /// Flat, relative to the screen's top-left, in logical pixels. Clamped to
@@ -374,6 +385,13 @@ pub(crate) struct FloatingDoc {
     /// ↪ pressed in the brief's notes bar comes back here, to be sent on to
     /// the workspace. Dropped with the square.
     _send: gpui::Subscription,
+    /// A clip played out: the pane closes it and puts back what it covered.
+    /// Dropped with the square.
+    _finished: gpui::Subscription,
+    /// The square this one is a clip over, kept whole and put back on top
+    /// when the clip closes. `None` for every square that is not a clip, and
+    /// for a clip opened over the bare terminal.
+    below: Option<Box<FloatingDoc>>,
 }
 
 impl FloatingDoc {
@@ -383,6 +401,7 @@ impl FloatingDoc {
         links: gpui::Subscription,
         gave_up: gpui::Subscription,
         send: gpui::Subscription,
+        finished: gpui::Subscription,
     ) -> Self {
         Self {
             view,
@@ -394,6 +413,19 @@ impl FloatingDoc {
             note: None,
             _gave_up: gave_up,
             _send: send,
+            _finished: finished,
+            below: None,
+        }
+    }
+
+    /// This square, and the one it covers, on their way across a replica
+    /// repair.
+    fn carry(&self) -> FloatCarry {
+        FloatCarry {
+            view: self.view.clone(),
+            rect: self.rect,
+            note: self.note,
+            below: self.below.as_ref().map(|b| Box::new(b.carry())),
         }
     }
 }
@@ -2453,6 +2485,8 @@ pub(crate) struct FloatCarry {
     view: gpui::Entity<crate::docview::DocumentView>,
     rect: crate::docopen::FloatRect,
     note: Option<crate::docopen::FloatNote>,
+    /// The square a clip covers, carried with it.
+    below: Option<Box<FloatCarry>>,
 }
 
 /// What a pseudoterminal is told about its size: the grid, and one cell in
@@ -3934,11 +3968,7 @@ impl TerminalView {
                     self.bench.face() == crate::workbench::Face::Document,
                 )
             }),
-            float: self.float.as_ref().map(|f| FloatCarry {
-                view: f.view.clone(),
-                rect: f.rect,
-                note: f.note,
-            }),
+            float: self.float.as_ref().map(FloatingDoc::carry),
             doc_opened_by: self.doc_opened_by,
         }
     }
@@ -3974,9 +4004,7 @@ impl TerminalView {
             }
         }
         if let Some(f) = from.float {
-            let mut float = Self::float_of(f.view, f.rect, cx);
-            float.note = f.note;
-            self.float = Some(float);
+            self.float = Some(Self::float_back(f, cx));
         }
         self.doc_opened_by = from.doc_opened_by;
     }

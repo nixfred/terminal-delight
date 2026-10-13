@@ -594,6 +594,32 @@ pub fn float_home(screen_w: f32, screen_h: f32, line_top: f32, line_bottom: f32)
     )
 }
 
+/// The square's strip: its file's name and its controls, across the top.
+pub const FLOAT_STRIP_H: f32 = 22.0;
+
+/// How far a clip's box sits inside the square it covers, on every side
+/// below the strip, so the square's own rim shows round it.
+const CLIP_INSET: f32 = 24.0;
+
+/// Pure. Where a clip's box opens over the square it covers: inside it, below
+/// the square's strip, with the square's rim still showing round it. It reads
+/// as a box on top of the page, which is what it is, rather than the page
+/// turning into a video. A square too small to leave a rim round a box of the
+/// smallest size a square can be resized to is covered whole.
+pub fn clip_home(below: FloatRect) -> FloatRect {
+    let inside = FloatRect {
+        x: below.x + CLIP_INSET,
+        y: below.y + FLOAT_STRIP_H + CLIP_INSET,
+        w: below.w - 2.0 * CLIP_INSET,
+        h: below.h - FLOAT_STRIP_H - 2.0 * CLIP_INSET,
+    };
+    if inside.w < FLOAT_MIN_W || inside.h < FLOAT_MIN_H {
+        below
+    } else {
+        inside
+    }
+}
+
 /// Keep a square inside the screen, shrinking it first if the screen became
 /// smaller than the square.
 pub fn clamp_float(r: FloatRect, screen_w: f32, screen_h: f32) -> FloatRect {
@@ -774,6 +800,10 @@ pub enum FloatHit {
     /// Within a grip of the left, right or bottom edge: pressing here
     /// resizes the square.
     Resize(Edges),
+    /// The square a clip's box is covering, where the box is not. Drawn, and
+    /// deaf: a press here does nothing, rather than falling through to the
+    /// terminal under both of them.
+    Covered,
 }
 
 /// One region of the square as it was laid out, flat, in window pixels.
@@ -1590,6 +1620,39 @@ mod tests {
         assert!(inside(c, 400.0, 300.0), "{c:?}");
         assert_eq!((c.w, c.h), (400.0, 300.0));
         assert!(c.contains(10.0, 10.0) && !c.contains(400.0, 10.0));
+    }
+
+    /// A clip's box opens inside the square it covers, leaving the square's
+    /// strip (its file's name and its ✕) and a rim of the square showing, so
+    /// the page plainly is still there underneath. A square too small for
+    /// that is covered whole rather than given a box smaller than any square
+    /// can be.
+    #[test]
+    fn a_clip_opens_inside_the_square_it_covers_below_its_strip() {
+        let page = FloatRect {
+            x: 300.0,
+            y: 40.0,
+            w: 600.0,
+            h: 600.0,
+        };
+        let clip = clip_home(page);
+        assert!(
+            clip.y >= page.y + FLOAT_STRIP_H,
+            "the strip shows: {clip:?}"
+        );
+        assert!(
+            clip.x > page.x && clip.x + clip.w < page.x + page.w,
+            "{clip:?}"
+        );
+        assert!(clip.y + clip.h < page.y + page.h, "{clip:?}");
+        assert!(clip.w >= FLOAT_MIN_W && clip.h >= FLOAT_MIN_H);
+        let small = FloatRect {
+            x: 10.0,
+            y: 10.0,
+            w: FLOAT_MIN_W + 20.0,
+            h: FLOAT_MIN_H + 20.0,
+        };
+        assert_eq!(clip_home(small), small);
     }
 
     fn tab(agents: &[bool]) -> Vec<SendLeaf> {

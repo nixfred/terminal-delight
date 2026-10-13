@@ -10,7 +10,7 @@
 use gpui::{point, px, TestAppContext};
 
 use super::harness::{
-    desktop_launches, Asked, FakeBriefEngine, Pane, Rect, Scratch, BRIEF_ANCHORS,
+    desktop_launches, Asked, FakeBriefEngine, FakeFilmEngine, Pane, Rect, Scratch, BRIEF_ANCHORS,
 };
 use crate::docopen::{Asker, DocSeat, FloatHit};
 use crate::workbench::Face;
@@ -945,6 +945,199 @@ fn a_video_nothing_can_play_goes_to_the_desktop_and_says_why(cx: &mut TestAppCon
     let got = launched_by(&mut pane, at, held(true, true, false, false));
     assert_eq!(got.len(), 1, "a split is refused the same way: {got:?}");
     assert_eq!(*asked.borrow(), Vec::<Asked>::new(), "no pane is asked for");
+}
+
+/// A video opens as a clip, in a box of its own over the square already up,
+/// and the square under it is kept: the same view, not re-opened. Escape
+/// closes the clip and the square is on top again; a clip that plays out does
+/// the same by itself. A press on the square around the clip is taken and
+/// does nothing. The agent's road (`open_document`, here) opens the same clip
+/// box as Alt+click does, and a second clip replaces the first and keeps the
+/// square. Parker, 2026-10-13: "we need to make sure we don't LOSE the
+/// current open overlay html, so the video SHOULD OPEN IN IT'S OWN video
+/// overlay glowbox, then auto close when finished."
+#[gpui::test]
+fn a_video_opens_as_a_clip_over_the_square_and_its_end_puts_the_square_back(
+    cx: &mut TestAppContext,
+) {
+    let dir = Scratch::new("clip-over-square");
+    let clip = dir.join("clip.mp4");
+    // An MP4's first box: a video by its name and its bytes. Whether mpv can
+    // play it does not matter here; the boxes around it are what is held.
+    std::fs::write(&clip, b"\0\0\0\x20ftypisom\0\0\x02\0isomiso2avc1mp41").expect("write");
+    let clip = clip.to_str().expect("UTF-8").to_string();
+    let other = dir.join("other.mp4");
+    std::fs::write(&other, b"\0\0\0\x20ftypisom\0\0\x02\0isomiso2avc1mp41").expect("write");
+    let other = other.to_str().expect("UTF-8").to_string();
+    let png = dir.fixture(PICTURE, "shot.png");
+    let png = png.to_str().expect("UTF-8").to_string();
+    // The clips' lines above the picture's, so the picture's square, which
+    // opens below its own line, never covers a clip's path.
+    let mut pane = Pane::running(
+        cx,
+        &format!("printf '%s\\n' 'clip {clip}' 'other {other}' 'shot {png}' 'ready'; exec cat"),
+    );
+    pane.video_ready(Ok(()));
+    pane.wait_for("ready");
+    let below = |pane: &mut Pane| {
+        pane.read(|v| {
+            v.float
+                .as_ref()
+                .and_then(|f| f.below.as_ref())
+                .map(|b| b.view.clone())
+        })
+    };
+
+    let at = pane.point_at(&png);
+    pane.click(at, Pane::alt());
+    pane.redraw();
+    let square = pane.float_view().expect("the picture's square");
+    let square_rect = pane.float_rect().expect("drawn");
+
+    let at = pane.point_at(&clip);
+    pane.click(at, Pane::alt());
+    pane.redraw();
+    assert_eq!(
+        pane.float_path().as_deref(),
+        Some(std::path::Path::new(&clip)),
+        "the clip is the box on top"
+    );
+    assert_eq!(
+        below(&mut pane),
+        Some(square.clone()),
+        "the square under it is the same view"
+    );
+    let clip_rect = pane.float_rect().expect("the clip is drawn");
+    assert!(
+        clip_rect.0 > square_rect.0
+            && clip_rect.1 > square_rect.1
+            && clip_rect.0 + clip_rect.2 < square_rect.0 + square_rect.2
+            && clip_rect.1 + clip_rect.3 < square_rect.1 + square_rect.3,
+        "the clip's box sits inside the square, its rim showing: {clip_rect:?} in {square_rect:?}"
+    );
+    // The square's own controls are not live under the clip: the only ✕ is
+    // the clip's, and the rest of the square is one covered zone.
+    let close = pane.float_zone(FloatHit::Close).expect("the clip's ✕");
+    assert!(
+        close.1 >= clip_rect.1,
+        "the live ✕ is the clip's: {close:?}"
+    );
+    let covered = pane
+        .float_zone(FloatHit::Covered)
+        .expect("the square is covered");
+    let rim = point(px(covered.0 + 6.0), px(covered.1 + covered.3 - 6.0));
+    pane.click(rim, Default::default());
+    assert_eq!(
+        pane.float_path().as_deref(),
+        Some(std::path::Path::new(&clip)),
+        "a press on the covered square changes nothing"
+    );
+
+    pane.keys("escape");
+    assert_eq!(
+        pane.float_view(),
+        Some(square.clone()),
+        "Escape closes the clip, and the same square is on top again"
+    );
+    assert_eq!(below(&mut pane), None);
+
+    // The agent's road: open_document on a video opens the same clip box.
+    let target = crate::docopen::drawable_document(std::path::Path::new(&clip)).expect("a video");
+    let said = pane
+        .view
+        .update(pane.cx, |v, cx| v.open_here(target.clone(), cx));
+    assert!(said.starts_with("ok float"), "{said}");
+    assert_eq!(below(&mut pane), Some(square.clone()));
+    // Another clip replaces this one, and the square under it stays. (The
+    // same clip's path Alt+clicked again would ask for a split instead.)
+    let first = pane.float_view().expect("the clip");
+    let at = pane.point_at(&other);
+    pane.click(at, Pane::alt());
+    pane.redraw();
+    assert_eq!(
+        pane.float_path().as_deref(),
+        Some(std::path::Path::new(&other))
+    );
+    let second = pane.float_view().expect("a clip");
+    assert_ne!(second, first, "the second clip replaced the first");
+    assert_ne!(second, square);
+    assert_eq!(
+        below(&mut pane),
+        Some(square.clone()),
+        "a clip asked for again keeps the square under it"
+    );
+
+    // It plays out: the clip closes by itself and the square is back.
+    let playing = pane.float_view().expect("the clip");
+    playing.update(pane.cx, |_, cx| cx.emit(crate::docview::Finished));
+    pane.redraw();
+    assert_eq!(
+        pane.float_view(),
+        Some(square),
+        "a clip that plays out puts the square back on top"
+    );
+    pane.keys("escape");
+    assert_eq!(
+        pane.float_path(),
+        None,
+        "and Escape closes the square, as before"
+    );
+    assert_eq!(desktop_launches(), Vec::<String>::new());
+}
+
+/// The page road: a press on a `<video>` in a page open in the square opens
+/// the file it plays as a clip over the page. The page is not replaced, as a
+/// followed link replaces it; it is under the clip, the same view, and back
+/// on top when the clip goes.
+#[gpui::test]
+fn a_press_on_a_video_in_a_page_opens_it_as_a_clip_over_the_page(cx: &mut TestAppContext) {
+    let dir = Scratch::new("clip-from-page");
+    let film = dir.join("film.mp4");
+    std::fs::write(&film, b"\0\0\0\x20ftypisom\0\0\x02\0isomiso2avc1mp41").expect("write");
+    let film = film.to_str().expect("UTF-8").to_string();
+    let page = dir.fixture("tests/fixtures/page/brief.html", "welcome.html");
+    let page = page.to_str().expect("UTF-8").to_string();
+    let mut pane = Pane::running(
+        cx,
+        &format!("printf '%s\\n' 'page {page}' 'ready'; exec cat"),
+    );
+    pane.html_engine(Ok(std::sync::Arc::new(FakeFilmEngine {
+        src: format!("file://{film}"),
+    })));
+    pane.video_ready(Ok(()));
+    pane.wait_for("ready");
+
+    let at = pane.point_at(&page);
+    pane.click(at, Pane::alt());
+    pane.redraw();
+    pane.redraw();
+    let square = pane.float_view().expect("the page's square");
+    let body = pane.float_zone(FloatHit::Body).expect("the page's body");
+    pane.click(Pane::middle(body), Default::default());
+    pane.redraw();
+    assert_eq!(
+        pane.float_path().as_deref(),
+        Some(std::path::Path::new(&film)),
+        "the film opens as the box on top"
+    );
+    let under = pane.read(|v| {
+        v.float
+            .as_ref()
+            .and_then(|f| f.below.as_ref())
+            .map(|b| b.view.clone())
+    });
+    assert_eq!(
+        under,
+        Some(square.clone()),
+        "the page is under it, not replaced"
+    );
+    pane.keys("escape");
+    assert_eq!(
+        pane.float_view(),
+        Some(square),
+        "and back on top when it goes"
+    );
+    assert_eq!(desktop_launches(), Vec::<String>::new());
 }
 
 /// A PDF with no poppler to draw it goes to the desktop before any square or

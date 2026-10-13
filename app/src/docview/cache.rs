@@ -299,6 +299,7 @@ mod tests {
             openers: vec![],
             dialogs: vec!["d-one".into()],
             diagnostics: vec![],
+            videos: None,
         }
     }
 

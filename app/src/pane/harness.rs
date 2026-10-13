@@ -806,6 +806,62 @@ impl PageEngine for FakeBriefEngine {
             openers: vec![],
             dialogs: vec![],
             diagnostics: vec![],
+            videos: Some(vec![]),
+        })
+    }
+
+    fn tile(&self, _: PageId, _: u64, _: Band) -> Result<Tile, EngineError> {
+        Err(EngineError::Stale)
+    }
+
+    fn dialog(&self, _: PageId, _: u64, _: &str) -> Result<DialogRender, EngineError> {
+        Err(EngineError::Closed)
+    }
+
+    fn close(&self, _: PageId) {}
+}
+
+/// A page engine that lays out one page holding one `<video>` and nothing
+/// else, the box so large that any press on the page lands on it. `src` is
+/// the file it plays, as the probe would report it: a `file://` URL.
+pub(super) struct FakeFilmEngine {
+    pub(super) src: String,
+}
+
+impl PageEngine for FakeFilmEngine {
+    fn name(&self) -> &'static str {
+        "harness"
+    }
+
+    fn open(&self, req: &PageRequest) -> Result<PageLayout, EngineError> {
+        Ok(PageLayout {
+            page: Some(PageId(1)),
+            generation: 1,
+            rendered: req.expect,
+            geometry: req.geometry,
+            height_css: 2400.0,
+            notes_file: None,
+            capability: NotesCapability {
+                notes_islands: 0,
+                concurs_island: false,
+                tagged: 0,
+                concur: ConcurSupport::Unknown,
+            },
+            anchors: vec![],
+            links: vec![],
+            targets: Some(vec![]),
+            openers: vec![],
+            dialogs: vec![],
+            diagnostics: vec![],
+            videos: Some(vec![crate::docview::engine::PageVideo {
+                src: Some(self.src.clone()),
+                rect: Some(RectCss {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 4000.0,
+                    h: 2400.0,
+                }),
+            }]),
         })
     }
 

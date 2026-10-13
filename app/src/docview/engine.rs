@@ -165,6 +165,25 @@ pub struct PageLayout {
     pub dialogs: Vec<String>,
     /// Page errors, dead openers, dialogs that overflowed.
     pub diagnostics: Vec<String>,
+    /// Every `<video>` outside a dialog, in document order. `None` from a
+    /// probe too old to report them, which is unknown, not "has none".
+    #[serde(default)]
+    pub videos: Option<Vec<PageVideo>>,
+}
+
+/// A `<video>` on a page. The page is a photograph, so the video in it is a
+/// picture of a player; a press on its box opens the file it plays as a clip
+/// over the page instead.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PageVideo {
+    /// The file it plays, as the browser resolved it against the page:
+    /// the source it chose, else its first `<source>`, else its `src`.
+    /// `None` for a video a script feeds (a blob, a stream), which names no
+    /// file anything else could open.
+    #[serde(default)]
+    pub src: Option<String>,
+    #[serde(default, deserialize_with = "rect_or_none")]
+    pub rect: Option<RectCss>,
 }
 
 impl PageLayout {
@@ -215,6 +234,7 @@ impl PageLayout {
             openers: vec![],
             dialogs: vec![],
             diagnostics: vec![],
+            videos: Some(vec![]),
         }
     }
 }
