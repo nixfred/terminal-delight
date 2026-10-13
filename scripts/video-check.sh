@@ -24,9 +24,13 @@
 #      too, a band over the page drawing the sound's waveform, which closes
 #      at the sound's end; `doc here` on a sound does the same.
 #
-# Sound is routed nowhere: the window gets no PulseAudio, no PipeWire and an
-# empty ALSA config, so a clip with a soundtrack plays silently here, and a
-# sound plays its waveform in silence (mpv falls back to no output).
+# Sound is routed nowhere: mpv is told to play into no output at all
+# (TD_MPV_AO=null), so a clip with a soundtrack plays silently here, and a
+# sound plays its waveform in silence. The window also gets no PulseAudio, no
+# PipeWire and an empty ALSA config, for anything else that might make one.
+# Breaking those alone is not enough: mpv then probes each output in turn for
+# every clip with sound, and in a window whose servers point at nothing the
+# probe sooner or later hangs (the sixth or seventh clip in a row, measured).
 # Photographs land in $OUT. Exits non-zero on the first check that fails.
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -71,7 +75,7 @@ trap 'pkill -f "$OUT/bin/claude" 2>/dev/null; hidden_cleanup' EXIT
 LOG="$OUT/window.log"
 {
   echo "export TD_SESSION=$SESSION PATH=$OUT/bin:\$PATH XDG_CACHE_HOME=$OUT/cache XDG_STATE_HOME=$OUT/state TD_DOCDEBUG=1"
-  echo "export PULSE_SERVER=unix:/nonexistent PIPEWIRE_REMOTE=/nonexistent ALSA_CONFIG_PATH=$OUT/empty-alsa.conf"
+  echo "export TD_MPV_AO=null PULSE_SERVER=unix:/nonexistent PIPEWIRE_REMOTE=/nonexistent ALSA_CONFIG_PATH=$OUT/empty-alsa.conf"
   echo "exec $TD > $LOG 2>&1"
 } > "$OUT/launch.sh"
 hidden_launch "$SESSION" "$WS" "$LOG" "sh $OUT/launch.sh"

@@ -572,6 +572,14 @@ fn control(
         for (name, value) in OPTIONS {
             (lib.set_option_string)(mpv, name.as_ptr(), value.as_ptr());
         }
+        // The sound output mpv uses, when one is named: `null` plays every
+        // clip in silence without looking for a device at all, which is how
+        // the bench check plays them (`scripts/video-check.sh`).
+        if let Some(ao) = std::env::var_os("TD_MPV_AO")
+            .and_then(|v| CString::new(v.as_encoded_bytes().to_vec()).ok())
+        {
+            (lib.set_option_string)(mpv, c"ao".as_ptr(), ao.as_ptr());
+        }
         // A video on a pane's Document face loops, the way a GIF does; a clip
         // in the square plays once and reports its end, which closes it.
         let times = if looping { c"inf" } else { c"no" };
