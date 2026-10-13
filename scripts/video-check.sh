@@ -18,6 +18,8 @@
 #      the clip's end the box closes, its threads end and the page is on top
 #      again; `doc here` on a video (an agent handing over a render) does the
 #      same.
+#   7. the same press on a page that carries its film inside itself, as a
+#      data: address, opens the copy the page cache kept of that film.
 #
 # Sound is routed nowhere: the window gets no PulseAudio, no PipeWire and an
 # empty ALSA config, so a clip with a soundtrack plays silently here.
@@ -166,6 +168,38 @@ sleep 0.6
 check "doc here on a video opens it over the page" "$(case "$(floating)" in *short.mp4) echo 0 ;; *) echo 1 ;; esac)"
 sleep 3
 check "and it too goes at its end, leaving the page" "$(case "$(floating)" in *page.html) echo 0 ;; *) echo 1 ;; esac)"
+echo "   close: $(ctl doc close)"
+probe
+
+echo "== 7 · a video the page carries inside itself opens as a clip the same way"
+# A page made to travel as one file carries its film as a data: address. The
+# page cache keeps it as pages/clip-<key>/clip.mp4, here under $OUT/cache.
+{
+  echo '<!doctype html><html><body style="margin:0;background:#111;color:#ddd;font:18px sans-serif">'
+  echo '<h1 style="font-size:24px;margin:16px">A page that carries its film</h1>'
+  printf '<video controls preload="metadata" src="data:video/mp4;base64,%s" style="display:block;width:90%%;margin:0 auto"></video>\n' \
+    "$(base64 -w0 "$OUT/short.mp4")"
+  echo '</body></html>'
+} > "$OUT/carried.html"
+echo "   page: $(ctl doc here "$OUT/carried.html")"
+opened=""
+for _ in $(seq 1 30); do
+  sleep 0.5
+  case "$(floating)" in */clip.mp4) opened=$(floating); break ;; esac
+  probe
+  BODY=$(grep -m1 '^float .* Body$' "$PROBE")
+  [ -n "$BODY" ] || continue
+  AT=$(echo "$BODY" | awk '{printf "%d %d", $2 + $4/2, $3 + 70 + $4/5}')
+  ctl bench click $AT >/dev/null
+done
+echo "   press on the film: ${opened:-nothing opened}"
+check "a press on the carried video opens it as a clip" "$([ -n "$opened" ]; echo $?)"
+check "from the copy the page cache kept" \
+  "$(case "$opened" in "$OUT/cache/terminal-delight/pages/clip-"*) echo 0 ;; *) echo 1 ;; esac)"
+check "which is the film itself" "$(cmp -s "$opened" "$OUT/short.mp4"; echo $?)"
+shot carried-clip-over-page
+sleep 3
+check "at its end the page is on top again" "$(case "$(floating)" in *carried.html) echo 0 ;; *) echo 1 ;; esac)"
 echo "   close: $(ctl doc close)"
 probe
 

@@ -144,7 +144,9 @@
      cannot play; a press on its box opens the file as a clip over the page
      instead. The file is the source the browser chose, else the first
      <source>, else the src attribute, each as the browser resolved it. A
-     video fed by a script (a blob, a stream) names no file: null. */
+     film the page carries inside itself is a data: address, reported whole
+     for TD to keep as a file. A video fed by a script (a blob, a stream)
+     names no file: null. */
   function videosIn(root, dx, dy) {
     var out = [];
     Array.prototype.forEach.call(root.querySelectorAll('video'), function (v) {
@@ -155,7 +157,7 @@
         if (first) src = first.src;
         else if (v.getAttribute('src')) src = v.src;
       }
-      if (/^(blob|mediastream|data):/i.test(src)) src = '';
+      if (/^(blob|mediastream):/i.test(src)) src = '';
       out.push({ src: src || null, rect: box(v, dx, dy) });
     });
     return out;

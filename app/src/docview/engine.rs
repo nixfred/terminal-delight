@@ -178,8 +178,11 @@ pub struct PageLayout {
 pub struct PageVideo {
     /// The file it plays, as the browser resolved it against the page:
     /// the source it chose, else its first `<source>`, else its `src`.
-    /// `None` for a video a script feeds (a blob, a stream), which names no
-    /// file anything else could open.
+    /// A film the page carries inside itself arrives as its `data:` address,
+    /// and the page cache swaps that for a file it keeps
+    /// (`cache::keep_clips`) before a view adopts the layout. `None` for a
+    /// video a script feeds (a blob, a stream), which names no file anything
+    /// else could open.
     #[serde(default)]
     pub src: Option<String>,
     #[serde(default, deserialize_with = "rect_or_none")]

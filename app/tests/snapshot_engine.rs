@@ -1292,6 +1292,7 @@ fn a_pages_videos_are_reported_with_their_boxes_and_files() {
          <video style=\"display:block;width:320px;height:180px\">\
            <source src=\"two%20takes.webm\" type=\"video/webm\"></video>\
          <video id=\"fed\" style=\"display:block;width:320px;height:180px\"></video>\
+         <video src=\"data:video/mp4;base64,AAAAIGZ0eXBpc29t\" style=\"display:block;width:320px;height:180px\"></video>\
          <dialog id=\"d-film\"><video src=\"hidden.mp4\"></video></dialog>\
          </body></html>",
     )
@@ -1306,11 +1307,17 @@ fn a_pages_videos_are_reported_with_their_boxes_and_files() {
             Some(format!("{base}/out/one.mp4")),
             Some(format!("{base}/two%20takes.webm")),
             None,
+            Some("data:video/mp4;base64,AAAAIGZ0eXBpc29t".into()),
         ],
-        "resolved against the page, a fed one naming nothing, the dialog's left out"
+        "resolved against the page, a fed one naming nothing, a carried one \
+         reported whole for TD to keep, the dialog's left out"
     );
     let tops: Vec<f32> = videos.iter().map(|v| v.rect.expect("laid out").y).collect();
-    assert_eq!(tops, vec![0.0, 180.0, 360.0], "each where the page puts it");
+    assert_eq!(
+        tops,
+        vec![0.0, 180.0, 360.0, 540.0],
+        "each where the page puts it"
+    );
     let _ = std::fs::remove_dir_all(&dir);
     rig.done();
 }
