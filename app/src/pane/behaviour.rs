@@ -230,6 +230,57 @@ fn alt_click_on_a_command_claude_wrapped_copies_it_whole(cx: &mut TestAppContext
     assert_eq!(desktop_launches(), Vec::<String>::new());
 }
 
+/// A command wrapped behind Claude's margin, printed on the alternate screen,
+/// the way Claude Code draws with `"tui": "fullscreen"`.
+const FULLSCREEN_COMMAND: &str =
+    "cargo test --locked --bin terminal-delight -- alt_click_on_a_command fullscreen_claude \
+     a_soft_wrapped_url the_disk_decides two_links_that_meet wears_the_link_colour";
+
+fn pane_on_the_alternate_screen(cx: &mut TestAppContext) -> Pane {
+    let rows = claude_rows(FULLSCREEN_COMMAND, 100);
+    assert_eq!(rows.len(), 2, "the fixture must wrap once: {rows:?}");
+    let quoted: Vec<String> = rows.iter().map(|r| format!("'{r}'")).collect();
+    let mut pane = Pane::running(
+        cx,
+        &format!(
+            "printf '\\033[?1049h'; printf '%s\\n' {} 'ready'; exec cat",
+            quoted.join(" ")
+        ),
+    );
+    pane.wait_for("ready");
+    pane
+}
+
+/// Claude Code drawing fullscreen is on the alternate screen, and a command it
+/// wrapped there copies whole, as it does on the normal screen. The chip was
+/// off in every Claude pane from the day that setting went on, because the
+/// alternate screen was read as a canvas.
+#[gpui::test]
+fn alt_click_on_a_command_in_a_fullscreen_claude_pane_copies_it_whole(cx: &mut TestAppContext) {
+    let mut pane = pane_on_the_alternate_screen(cx);
+    pane.running_as(crate::pane::PaneMode::Claude);
+    for word in ["--locked", "two_links_that_meet"] {
+        let at = pane.point_at(word);
+        pane.click(at, Pane::alt());
+        assert_eq!(
+            pane.clipboard().as_deref(),
+            Some(FULLSCREEN_COMMAND),
+            "alt+click on {word:?} copies the whole command"
+        );
+    }
+    assert_eq!(pane.float_path(), None, "a copy opens no square");
+}
+
+/// The same rows on the alternate screen of a program that is not an agent —
+/// vim, htop — are a canvas, and nothing is offered for a copy.
+#[gpui::test]
+fn alt_click_on_a_canvas_programs_alternate_screen_copies_nothing(cx: &mut TestAppContext) {
+    let mut pane = pane_on_the_alternate_screen(cx);
+    let at = pane.point_at("--locked");
+    pane.click(at, Pane::alt());
+    assert_eq!(pane.clipboard(), None);
+}
+
 /// A command whose last word Claude cut at the pane's edge is copied with the
 /// word whole: the two halves meet with no space between them.
 #[gpui::test]

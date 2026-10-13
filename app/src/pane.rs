@@ -5504,12 +5504,18 @@ impl TerminalView {
         }
         // Alt-screen apps (vim, htop) lay their rows out as a canvas, not as
         // flowed text, so "rejoin what the width broke" means nothing there.
-        let alt_screen = self
-            .session
-            .term
-            .lock()
-            .mode()
-            .contains(TermMode::ALT_SCREEN);
+        // An agent drawing fullscreen is on the alternate screen too — Claude
+        // Code with `"tui": "fullscreen"` always is — but what it draws is a
+        // conversation, flowed behind a margin, and its commands copy as they
+        // do on the normal screen. Treating it as a canvas switched the chip
+        // off in every Claude pane the day that setting went on.
+        let alt_screen = !self.mode.is_agent()
+            && self
+                .session
+                .term
+                .lock()
+                .mode()
+                .contains(TermMode::ALT_SCREEN);
         let (prow, _, _) = self.viewport_cell(pos);
         // A drag-selection owns the pointer, so no line is offered for a copy
         // while there is one — a document under the pointer still is, since

@@ -183,6 +183,12 @@ impl Pane {
         self.view.read_with(self.cx, |v, _| f(v))
     }
 
+    /// Say the pane is running `mode`, as the process watch would on finding
+    /// that agent in the foreground.
+    pub(super) fn running_as(&mut self, mode: crate::pane::PaneMode) {
+        self.view.update(self.cx, |v, cx| v.set_mode(mode, cx));
+    }
+
     /// Ask for a frame and let it be drawn, with everything it triggers.
     pub(super) fn redraw(&mut self) {
         self.view.update(self.cx, |_, cx| cx.notify());
