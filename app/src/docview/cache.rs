@@ -160,6 +160,7 @@ pub fn keep_clips(root: &Path, videos: &mut [PageVideo]) -> Vec<String> {
             Err(e) => {
                 why.push(format!("a video the page carries was not kept: {e}"));
                 v.src = None;
+                v.unkept = Some(e.to_string());
             }
         }
     }
@@ -578,6 +579,7 @@ mod tests {
         PageVideo {
             src: Some(src.into()),
             rect: None,
+            unkept: None,
         }
     }
 
@@ -590,6 +592,7 @@ mod tests {
             PageVideo {
                 src: None,
                 rect: None,
+                unkept: None,
             },
             // No media type: the bytes say MP4.
             video(&data("", FILM)),
@@ -605,6 +608,10 @@ mod tests {
         assert_eq!(std::fs::read(&file).unwrap(), FILM, "the film itself");
         assert_eq!(videos[1].src.as_deref(), Some("file:///films/beside.mp4"));
         assert_eq!(videos[2].src, None, "a fed video still names nothing");
+        assert!(
+            videos.iter().all(|v| v.unkept.is_none()),
+            "nothing was refused"
+        );
         assert!(videos[3]
             .src
             .as_deref()
@@ -631,6 +638,10 @@ mod tests {
         ];
         let why = keep_clips(&root, &mut videos);
         assert!(videos.iter().all(|v| v.src.is_none()), "{videos:?}");
+        assert!(
+            videos.iter().all(|v| v.unkept.is_some()),
+            "each says why, for a press on it to say: {videos:?}"
+        );
         assert_eq!(why.len(), 4, "{why:?}");
         assert_eq!(std::fs::read_dir(&root).unwrap().count(), 0, "nothing kept");
         std::fs::remove_dir_all(&root).unwrap();

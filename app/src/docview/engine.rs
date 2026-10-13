@@ -187,6 +187,11 @@ pub struct PageVideo {
     pub src: Option<String>,
     #[serde(default, deserialize_with = "rect_or_none")]
     pub rect: Option<RectCss>,
+    /// Why a film the page carried was not kept, when it was not: with no
+    /// `src`, this is what a press on it says. Absent, a video with no `src`
+    /// is one a script feeds.
+    #[serde(default)]
+    pub unkept: Option<String>,
 }
 
 impl PageLayout {

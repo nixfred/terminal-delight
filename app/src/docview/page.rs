@@ -245,6 +245,26 @@ pub fn video_at(videos: &[PageVideo], map: &PageToView, at: Point<Pixels>) -> Op
         .find_map(|v| v.src.clone())
 }
 
+/// Pure. Why a video under a view-local point that names no file cannot be
+/// opened, in words for the bar: a press there would otherwise do nothing
+/// at all, which reads as a press that never landed. `None` when no such
+/// video is under the point.
+pub fn unplayable_at(videos: &[PageVideo], map: &PageToView, at: Point<Pixels>) -> Option<String> {
+    let v = videos.iter().find(|v| {
+        v.src.is_none()
+            && v.rect
+                .and_then(|rc| place(rc, map))
+                .is_some_and(|b| b.contains(&at))
+    })?;
+    Some(match &v.unkept {
+        Some(why) => format!("this video's film could not be kept as a file to play: {why}"),
+        None => {
+            "this video is played by the page's own script, so there is no file to open it from"
+                .into()
+        }
+    })
+}
+
 /// Pure. How far to move the view's content so its origin sits on a whole
 /// device pixel.
 pub fn snap_offset(origin: f32, scale: f32) -> f32 {
@@ -1699,7 +1719,17 @@ impl PageDoc {
                 Pressed::Took
             }
             Some(PageHit::Link(l)) => self.follow(&l, cx),
-            Some(PageHit::Closer) | None => Pressed::Nothing,
+            Some(PageHit::Closer) => Pressed::Nothing,
+            // Nothing under the press but a video that names no file: say
+            // so in the bar, where a refused save says why.
+            None => match (unplayable_at(videos, &map, at), self.notes.as_mut()) {
+                (Some(why), Some(layer)) => {
+                    layer.say(Said::Refused(why));
+                    cx.notify();
+                    Pressed::Took
+                }
+                _ => Pressed::Nothing,
+            },
         }
     }
 
@@ -2729,6 +2759,7 @@ mod tests {
                     w: 1100.0,
                     h: 620.0,
                 }),
+                unkept: None,
             },
             PageVideo {
                 src: None,
@@ -2738,6 +2769,7 @@ mod tests {
                     w: 600.0,
                     h: 340.0,
                 }),
+                unkept: None,
             },
         ];
         let view = Bounds {
@@ -2766,6 +2798,28 @@ mod tests {
             video_at(&videos, &lower, at(100., 400.)),
             None,
             "a video that names no file opens nothing"
+        );
+        // ...but it is under the press, and says why it opens nothing.
+        let said = unplayable_at(&videos, &lower, at(100., 400.)).expect("the fed one");
+        assert!(said.contains("the page's own script"), "{said}");
+        assert_eq!(
+            unplayable_at(&videos, &map, at(300., 350.)),
+            None,
+            "the film"
+        );
+        assert_eq!(
+            unplayable_at(&videos, &lower, at(590., 400.)),
+            None,
+            "beside it"
+        );
+        let refused = vec![PageVideo {
+            unkept: Some("\"text/plain\" is not a video TD plays".into()),
+            ..videos[1].clone()
+        }];
+        let said = unplayable_at(&refused, &lower, at(100., 400.)).expect("the unkept one");
+        assert!(
+            said.contains("could not be kept") && said.contains("text/plain"),
+            "{said}"
         );
     }
 }
