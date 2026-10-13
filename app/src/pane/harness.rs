@@ -823,9 +823,10 @@ impl PageEngine for FakeBriefEngine {
 
 /// A page engine that lays out one page holding one `<video>` and nothing
 /// else, the box so large that any press on the page lands on it. `src` is
-/// the file it plays, as the probe would report it: a `file://` URL.
+/// what it plays, as the probe would report it: a `file://` URL, a `data:`
+/// address the page carries, or `None` for one a script feeds.
 pub(super) struct FakeFilmEngine {
-    pub(super) src: String,
+    pub(super) src: Option<String>,
 }
 
 impl PageEngine for FakeFilmEngine {
@@ -854,13 +855,14 @@ impl PageEngine for FakeFilmEngine {
             dialogs: vec![],
             diagnostics: vec![],
             videos: Some(vec![crate::docview::engine::PageVideo {
-                src: Some(self.src.clone()),
+                src: self.src.clone(),
                 rect: Some(RectCss {
                     x: 0.0,
                     y: 0.0,
                     w: 4000.0,
                     h: 2400.0,
                 }),
+                unkept: None,
             }]),
         })
     }

@@ -1138,7 +1138,7 @@ fn a_press_on_a_video_in_a_page_opens_it_as_a_clip_over_the_page(cx: &mut TestAp
         &format!("printf '%s\\n' 'page {page}' 'ready'; exec cat"),
     );
     pane.html_engine(Ok(std::sync::Arc::new(FakeFilmEngine {
-        src: format!("file://{film}"),
+        src: Some(format!("file://{film}")),
     })));
     pane.video_ready(Ok(()));
     pane.wait_for("ready");
@@ -1195,7 +1195,9 @@ fn a_press_on_a_video_the_page_carries_inside_itself_opens_it_as_a_clip(cx: &mut
         cx,
         &format!("printf '%s\\n' 'page {page}' 'ready'; exec cat"),
     );
-    pane.html_engine(Ok(std::sync::Arc::new(FakeFilmEngine { src: address })));
+    pane.html_engine(Ok(std::sync::Arc::new(FakeFilmEngine {
+        src: Some(address),
+    })));
     pane.video_ready(Ok(()));
     pane.wait_for("ready");
 
@@ -1226,6 +1228,59 @@ fn a_press_on_a_video_the_page_carries_inside_itself_opens_it_as_a_clip(cx: &mut
     });
     assert_eq!(under, Some(square), "the page is under it, not replaced");
     assert_eq!(desktop_launches(), Vec::<String>::new());
+}
+
+/// A press on a page's video that names no file opens nothing, and the bar
+/// says why. Before, it did nothing at all, which reads as a press that
+/// never landed. Answers what the bar said. `tag` names the scratch
+/// directory, which the tests calling this must not share.
+fn press_a_video_with_no_file(cx: &mut TestAppContext, tag: &str, src: Option<String>) -> String {
+    let dir = Scratch::new(tag);
+    let page = dir.fixture("tests/fixtures/page/brief.html", "welcome.html");
+    let page = page.to_str().expect("UTF-8").to_string();
+    let mut pane = Pane::running(
+        cx,
+        &format!("printf '%s\\n' 'page {page}' 'ready'; exec cat"),
+    );
+    pane.html_engine(Ok(std::sync::Arc::new(FakeFilmEngine { src })));
+    pane.video_ready(Ok(()));
+    pane.wait_for("ready");
+
+    let at = pane.point_at(&page);
+    pane.click(at, Pane::alt());
+    pane.redraw();
+    pane.redraw();
+    let square = pane.float_view().expect("the page's square");
+    let body = pane.float_zone(FloatHit::Body).expect("the page's body");
+    pane.click(Pane::middle(body), Default::default());
+    pane.redraw();
+    assert_eq!(pane.float_view(), Some(square), "nothing opened over it");
+    assert_eq!(desktop_launches(), Vec::<String>::new());
+    let said = pane.doc_notes().expect("the page's bar")["said"].clone();
+    said.as_str().unwrap_or_default().to_string()
+}
+
+/// One a script feeds.
+#[gpui::test]
+fn a_press_on_a_video_a_script_feeds_says_why_in_the_bar(cx: &mut TestAppContext) {
+    let said = press_a_video_with_no_file(cx, "clip-fed", None);
+    assert!(
+        said.contains("the page's own script"),
+        "the bar says why: {said:?}"
+    );
+}
+
+/// A film the page carries that could not be kept, with the cache's reason.
+#[gpui::test]
+fn a_press_on_a_film_that_could_not_be_kept_says_why_in_the_bar(cx: &mut TestAppContext) {
+    use base64::Engine;
+    let words = base64::engine::general_purpose::STANDARD.encode(b"just some words");
+    let address = format!("data:text/plain;base64,{words}");
+    let said = press_a_video_with_no_file(cx, "clip-unkept", Some(address));
+    assert!(
+        said.contains("could not be kept") && said.contains("text/plain"),
+        "the bar says why: {said:?}"
+    );
 }
 
 /// A PDF with no poppler to draw it goes to the desktop before any square or
