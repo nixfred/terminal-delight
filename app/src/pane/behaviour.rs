@@ -1147,6 +1147,58 @@ fn a_press_on_a_video_in_a_page_opens_it_as_a_clip_over_the_page(cx: &mut TestAp
     assert_eq!(desktop_launches(), Vec::<String>::new());
 }
 
+/// The same road from a page that carries its film inside itself, as a
+/// `data:` address — a page made to survive being sent as one file. The
+/// film is kept as a file in the page cache, and that file opens as the clip
+/// over the page. Before, a press there did nothing at all.
+#[gpui::test]
+fn a_press_on_a_video_the_page_carries_inside_itself_opens_it_as_a_clip(cx: &mut TestAppContext) {
+    use base64::Engine;
+    let film = b"\0\0\0\x20ftypisom\0\0\x02\0isomiso2avc1mp41carried";
+    let address = format!(
+        "data:video/mp4;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(film)
+    );
+    let dir = Scratch::new("clip-carried");
+    let page = dir.fixture("tests/fixtures/page/brief.html", "welcome.html");
+    let page = page.to_str().expect("UTF-8").to_string();
+    let mut pane = Pane::running(
+        cx,
+        &format!("printf '%s\\n' 'page {page}' 'ready'; exec cat"),
+    );
+    pane.html_engine(Ok(std::sync::Arc::new(FakeFilmEngine { src: address })));
+    pane.video_ready(Ok(()));
+    pane.wait_for("ready");
+
+    let at = pane.point_at(&page);
+    pane.click(at, Pane::alt());
+    pane.redraw();
+    pane.redraw();
+    let square = pane.float_view().expect("the page's square");
+    let body = pane.float_zone(FloatHit::Body).expect("the page's body");
+    pane.click(Pane::middle(body), Default::default());
+    pane.redraw();
+    let opened = pane.float_path().expect("the film opens as the box on top");
+    assert!(
+        opened.starts_with(crate::docview::cache::root()) && opened.ends_with("clip.mp4"),
+        "from the file the page cache kept: {}",
+        opened.display()
+    );
+    assert_eq!(
+        std::fs::read(&opened).expect("kept"),
+        film,
+        "the film itself"
+    );
+    let under = pane.read(|v| {
+        v.float
+            .as_ref()
+            .and_then(|f| f.below.as_ref())
+            .map(|b| b.view.clone())
+    });
+    assert_eq!(under, Some(square), "the page is under it, not replaced");
+    assert_eq!(desktop_launches(), Vec::<String>::new());
+}
+
 /// A PDF with no poppler to draw it goes to the desktop before any square or
 /// pane is made, and the pane says why on the row that was clicked, as a video
 /// with no libmpv does. A split asked for is refused the same way.

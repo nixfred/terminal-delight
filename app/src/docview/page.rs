@@ -704,8 +704,15 @@ impl PageDoc {
                     geometry: g,
                     expect: hash,
                 };
-                let (engine, still) = (engine.clone(), wanted.flag());
-                let opened = cx.background_spawn(async move { open_if_wanted(&*engine, &req, &still) });
+                let (engine, still, root) = (engine.clone(), wanted.flag(), root.clone());
+                // A film the page carries inside itself is kept as a file
+                // here, off the foreground, before anything can press it.
+                let opened = cx.background_spawn(async move {
+                    let mut l = open_if_wanted(&*engine, &req, &still)?;
+                    let why = l.videos.as_deref_mut().map(|v| cache::keep_clips(&root, v));
+                    l.diagnostics.extend(why.into_iter().flatten());
+                    Ok(l)
+                });
                 match opened.await {
                     Ok(l) => {
                         layout = Some(Ok(l));

@@ -64,7 +64,9 @@ pub const EXTRACT_JS: &str = include_str!("extract.js");
 ///    arrives from another document.
 /// 6: every `<video>` says where it is and what file it plays, so a press on
 ///    it opens the file as a clip over the page.
-pub const EXTRACT_VERSION: u32 = 6;
+/// 7: a film the page carries inside itself is reported as its `data:`
+///    address instead of as no file, for TD to keep as one.
+pub const EXTRACT_VERSION: u32 = 7;
 /// With no call for this long, the browser is closed.
 pub const IDLE_SHUTDOWN: Duration = Duration::from_secs(300);
 /// The names looked for on PATH, in order.
