@@ -1272,3 +1272,45 @@ fn a_concur_zone_in_the_markup_is_not_concur_support() {
     let _ = std::fs::remove_dir_all(&dir);
     rig.done();
 }
+
+/// Every `<video>` outside a dialog is reported with its box and the file it
+/// plays, resolved against the page as the browser resolves it: from `src`,
+/// or from the first `<source>`. A video a script feeds names no file, and
+/// says so rather than naming the page; one inside a dialog is not reported,
+/// because the page under the dialog is not what a press lands on there.
+#[test]
+fn a_pages_videos_are_reported_with_their_boxes_and_files() {
+    let Some(mut rig) = Rig::new("videos", Html::default(), Duration::from_secs(300)) else {
+        return;
+    };
+    let dir = scratch("videos");
+    let page = dir.join("films.html");
+    std::fs::write(
+        &page,
+        "<!DOCTYPE html><html><body style=\"margin:0\">\
+         <video src=\"out/one.mp4\" style=\"display:block;width:320px;height:180px\"></video>\
+         <video style=\"display:block;width:320px;height:180px\">\
+           <source src=\"two%20takes.webm\" type=\"video/webm\"></video>\
+         <video id=\"fed\" style=\"display:block;width:320px;height:180px\"></video>\
+         <dialog id=\"d-film\"><video src=\"hidden.mp4\"></video></dialog>\
+         </body></html>",
+    )
+    .unwrap();
+    let layout = rig.open(&page, NARROW).unwrap();
+    let videos = layout.videos.expect("this probe reports videos");
+    let srcs: Vec<Option<String>> = videos.iter().map(|v| v.src.clone()).collect();
+    let base = format!("file://{}", dir.display());
+    assert_eq!(
+        srcs,
+        vec![
+            Some(format!("{base}/out/one.mp4")),
+            Some(format!("{base}/two%20takes.webm")),
+            None,
+        ],
+        "resolved against the page, a fed one naming nothing, the dialog's left out"
+    );
+    let tops: Vec<f32> = videos.iter().map(|v| v.rect.expect("laid out").y).collect();
+    assert_eq!(tops, vec![0.0, 180.0, 360.0], "each where the page puts it");
+    let _ = std::fs::remove_dir_all(&dir);
+    rig.done();
+}

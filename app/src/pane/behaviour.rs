@@ -1017,10 +1017,17 @@ fn a_video_opens_as_a_clip_over_the_square_and_its_end_puts_the_square_back(
     );
     // The square's own controls are not live under the clip: the only ✕ is
     // the clip's, and the rest of the square is one covered zone.
-    let close = pane.float_zone(FloatHit::Close).expect("the clip's ✕");
+    let closes = pane.read(|v| {
+        v.float_zones
+            .borrow()
+            .iter()
+            .filter(|z| z.hit == FloatHit::Close)
+            .map(|z| (z.x, z.y, z.w, z.h))
+            .collect::<Vec<_>>()
+    });
     assert!(
-        close.1 >= clip_rect.1,
-        "the live ✕ is the clip's: {close:?}"
+        closes.len() == 1 && closes[0].1 >= clip_rect.1,
+        "one ✕ is live, and it is the clip's: {closes:?}"
     );
     let covered = pane
         .float_zone(FloatHit::Covered)

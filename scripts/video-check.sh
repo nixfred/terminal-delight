@@ -12,7 +12,12 @@
 #   3. Alt+click on the label floats the clip the label hides;
 #   4. Ctrl+Alt+click on it opens the clip in a pane beside;
 #   5. while a clip plays: its player's threads exist, the window's GPU memory
-#      holds still, and closing the square ends the threads.
+#      holds still, and closing the square ends the threads;
+#   6. a press on the <video> in a page open in the square opens the file as a
+#      clip in its own box over the page, the page is covered and kept, and at
+#      the clip's end the box closes, its threads end and the page is on top
+#      again; `doc here` on a video (an agent handing over a render) does the
+#      same.
 #
 # Sound is routed nowhere: the window gets no PulseAudio, no PipeWire and an
 # empty ALSA config, so a clip with a soundtrack plays silently here.
@@ -26,6 +31,15 @@ rm -rf "$OUT"; mkdir -p "$OUT/bin" "$OUT/state" "$OUT/cache"
 : > "$OUT/empty-alsa.conf"
 ffmpeg -v error -y -f lavfi -i testsrc2=size=640x360:rate=30 -t 6 \
   -c:v libx264 -pix_fmt yuv420p "$OUT/bars.mp4" || { echo "ffmpeg could not make a clip"; exit 2; }
+ffmpeg -v error -y -f lavfi -i testsrc2=size=640x360:rate=30 -t 2 \
+  -c:v libx264 -pix_fmt yuv420p "$OUT/short.mp4" || { echo "ffmpeg could not make a clip"; exit 2; }
+cat > "$OUT/page.html" <<'EOF'
+<!doctype html><html><body style="margin:0;background:#111;color:#ddd;font:18px sans-serif">
+<h1 style="font-size:24px;margin:16px">A page with a film in it</h1>
+<video controls preload="metadata" src="short.mp4" style="display:block;width:90%;margin:0 auto"></video>
+<p style="margin:16px">The page stays under the clip, and is back when it ends.</p>
+</body></html>
+EOF
 FILM="$ROOT/assets/clips/decision-briefs.mp4"
 cat > "$OUT/bin/claude" <<EOF
 #!/usr/bin/env python3
@@ -113,6 +127,46 @@ fi
 echo "   close: $(ctl doc close)"
 sleep 1.5
 check "closing ends its threads" "$([ "$(threads)" -eq 0 ]; echo $?)"
+probe
+
+echo "== 6 · a video on a page opens as a clip over the page, and closes at its end"
+# What floats, read without changing anything: a hover in the corner, where
+# neither the square nor a bench control is.
+floating() { ctl bench hover 3 3 | sed -n 's/.*float=\([^ ]*\).*/\1/p'; }
+echo "   page: $(ctl doc here "$OUT/page.html")"
+# The press is aimed a fifth of the body's width below the page's heading,
+# inside the film's box at any width the square can be; retried while the
+# page is still being laid out, when a press finds nothing. What floats is
+# read BEFORE each press, never from the press's own answer: that answer is
+# written before the pane routes the link the press raised, so it still
+# names the page, and a second press would land on the clip's picture and
+# pause it.
+opened=""
+for _ in $(seq 1 30); do
+  sleep 0.5
+  case "$(floating)" in *short.mp4) opened=$(floating); break ;; esac
+  probe
+  BODY=$(grep -m1 '^float .* Body$' "$PROBE")
+  [ -n "$BODY" ] || continue
+  AT=$(echo "$BODY" | awk '{printf "%d %d", $2 + $4/2, $3 + 70 + $4/5}')
+  ctl bench click $AT >/dev/null
+done
+echo "   press on the film: ${opened:-nothing opened}"
+check "a press on the page's video opens it as a clip" "$([ -n "$opened" ]; echo $?)"
+sleep 0.6; probe
+check "the page is under the clip, covered and kept" "$(grep -q '^float .* Covered$' "$PROBE"; echo $?)"
+check "the clip's player is running ($(threads))" "$([ "$(threads)" -ge 2 ]; echo $?)"
+shot clip-over-page
+sleep 3
+now=$(floating); echo "   after its end: float=$now"
+check "at its end the clip closes and the page is on top again" "$(case "$now" in *page.html) echo 0 ;; *) echo 1 ;; esac)"
+check "the clip's threads end with it ($(threads))" "$([ "$(threads)" -eq 0 ]; echo $?)"
+echo "   an agent hands over a render: $(ctl doc here "$OUT/short.mp4")"
+sleep 0.6
+check "doc here on a video opens it over the page" "$(case "$(floating)" in *short.mp4) echo 0 ;; *) echo 1 ;; esac)"
+sleep 3
+check "and it too goes at its end, leaving the page" "$(case "$(floating)" in *page.html) echo 0 ;; *) echo 1 ;; esac)"
+echo "   close: $(ctl doc close)"
 probe
 
 echo "== 2-4 · the Markdown label that hides a clip"

@@ -123,15 +123,22 @@ impl TerminalView {
         )
     }
 
-    /// `ctl bench probe`: every zone the bench recorded, every text run that
-    /// carries a link, and every Markdown link label with the target it
-    /// hides, each with its flat rectangle — where a scripted click has to
-    /// aim. A label that wraps is given its run's rectangle.
+    /// `ctl bench probe`: every zone the bench recorded, every zone the
+    /// floating square over it recorded (a clip's covered square included),
+    /// every text run that carries a link, and every Markdown link label with
+    /// the target it hides, each with its flat rectangle — where a scripted
+    /// click has to aim. A label that wraps is given its run's rectangle.
     pub(crate) fn bench_probe(&self) -> String {
         let mut out = Vec::new();
         for z in self.wb_zones.borrow().iter() {
             out.push(format!(
                 "zone {:.0} {:.0} {:.0} {:.0} {:?}",
+                z.x, z.y, z.w, z.h, z.hit
+            ));
+        }
+        for z in self.float_zones.borrow().iter() {
+            out.push(format!(
+                "float {:.0} {:.0} {:.0} {:.0} {:?}",
                 z.x, z.y, z.w, z.h, z.hit
             ));
         }
