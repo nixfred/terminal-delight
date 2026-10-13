@@ -1273,11 +1273,13 @@ fn a_concur_zone_in_the_markup_is_not_concur_support() {
     rig.done();
 }
 
-/// Every `<video>` outside a dialog is reported with its box and the file it
-/// plays, resolved against the page as the browser resolves it: from `src`,
-/// or from the first `<source>`. A video a script feeds names no file, and
-/// says so rather than naming the page; one inside a dialog is not reported,
-/// because the page under the dialog is not what a press lands on there.
+/// Every `<video>` and `<audio>` outside a dialog is reported with its box
+/// and the file it plays, resolved against the page as the browser resolves
+/// it: from `src`, or from the first `<source>`. A video a script feeds names
+/// no file, and says so rather than naming the page; one inside a dialog is
+/// not reported, because the page under the dialog is not what a press lands
+/// on there. Each `<audio>` says it is a sound, among them one that loads
+/// nothing until played (`preload="none"`), as the takes page's do.
 #[test]
 fn a_pages_videos_are_reported_with_their_boxes_and_files() {
     let Some(mut rig) = Rig::new("videos", Html::default(), Duration::from_secs(300)) else {
@@ -1293,7 +1295,10 @@ fn a_pages_videos_are_reported_with_their_boxes_and_files() {
            <source src=\"two%20takes.webm\" type=\"video/webm\"></video>\
          <video id=\"fed\" style=\"display:block;width:320px;height:180px\"></video>\
          <video src=\"data:video/mp4;base64,AAAAIGZ0eXBpc29t\" style=\"display:block;width:320px;height:180px\"></video>\
-         <dialog id=\"d-film\"><video src=\"hidden.mp4\"></video></dialog>\
+         <audio controls preload=\"none\" src=\"data:audio/ogg;base64,T2dnUwAC\" style=\"display:block;width:320px;height:54px\"></audio>\
+         <audio controls style=\"display:block;width:320px;height:54px\">\
+           <source src=\"takes/one.mp3\" type=\"audio/mpeg\"></audio>\
+         <dialog id=\"d-film\"><video src=\"hidden.mp4\"></video><audio controls src=\"hidden.mp3\"></audio></dialog>\
          </body></html>",
     )
     .unwrap();
@@ -1308,14 +1313,22 @@ fn a_pages_videos_are_reported_with_their_boxes_and_files() {
             Some(format!("{base}/two%20takes.webm")),
             None,
             Some("data:video/mp4;base64,AAAAIGZ0eXBpc29t".into()),
+            Some("data:audio/ogg;base64,T2dnUwAC".into()),
+            Some(format!("{base}/takes/one.mp3")),
         ],
         "resolved against the page, a fed one naming nothing, a carried one \
          reported whole for TD to keep, the dialog's left out"
     );
+    let sounds: Vec<bool> = videos.iter().map(|v| v.sound).collect();
+    assert_eq!(
+        sounds,
+        vec![false, false, false, false, true, true],
+        "the two <audio>s, and only they, are sounds"
+    );
     let tops: Vec<f32> = videos.iter().map(|v| v.rect.expect("laid out").y).collect();
     assert_eq!(
         tops,
-        vec![0.0, 180.0, 360.0, 540.0],
+        vec![0.0, 180.0, 360.0, 540.0, 720.0, 774.0],
         "each where the page puts it"
     );
     let _ = std::fs::remove_dir_all(&dir);

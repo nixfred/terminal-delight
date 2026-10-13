@@ -827,6 +827,8 @@ impl PageEngine for FakeBriefEngine {
 /// address the page carries, or `None` for one a script feeds.
 pub(super) struct FakeFilmEngine {
     pub(super) src: Option<String>,
+    /// An `<audio>` rather than a `<video>`.
+    pub(super) sound: bool,
 }
 
 impl PageEngine for FakeFilmEngine {
@@ -855,6 +857,7 @@ impl PageEngine for FakeFilmEngine {
             dialogs: vec![],
             diagnostics: vec![],
             videos: Some(vec![crate::docview::engine::PageVideo {
+                sound: self.sound,
                 src: self.src.clone(),
                 rect: Some(RectCss {
                     x: 0.0,

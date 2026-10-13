@@ -197,12 +197,13 @@ impl TerminalView {
     /// control socket has none). A square already open is replaced, and the
     /// one it replaces gives its texture back as it is dropped.
     ///
-    /// A video is the exception: it opens as a clip over whatever square is
-    /// up, and replaces nothing ([`Self::open_clip`]).
+    /// A video or a sound is the exception: it opens as a clip over whatever
+    /// square is up, and replaces nothing ([`Self::open_clip`]).
     ///
     /// A document with nothing on this machine to draw it — an HTML page with
-    /// no engine, a video with no libmpv — is handed to the desktop instead,
-    /// and the answer is the sentence saying why ([`Self::engine_refused`]).
+    /// no engine, a video or sound with no libmpv — is handed to the desktop
+    /// instead, and the answer is the sentence saying why
+    /// ([`Self::engine_refused`]).
     pub(crate) fn open_float(
         &mut self,
         target: crate::docopen::DocTarget,
@@ -212,7 +213,7 @@ impl TerminalView {
         if let Some(why) = self.engine_refused(&target, row, cx) {
             return Err(why);
         }
-        if target.kind == crate::docopen::DocKind::Video {
+        if target.kind.plays() {
             self.open_clip(target, row, cx);
             return Ok(());
         }
@@ -235,8 +236,8 @@ impl TerminalView {
         Ok(())
     }
 
-    /// Open a video as a clip: in a glowing box of its own, above whatever
-    /// square is up, playing once and closing itself at its end.
+    /// Open a video or a sound as a clip: in a glowing box of its own, above
+    /// whatever square is up, playing once and closing itself at its end.
     ///
     /// The square it covers is not closed, asked, re-read or scrolled. It is
     /// kept whole underneath ([`FloatingDoc::below`]) and comes back on top,
@@ -244,6 +245,10 @@ impl TerminalView {
     /// clip: a page whose video was pressed is still the page, and an agent
     /// showing off a render does not take away whatever its person was
     /// reading. A clip already up is replaced, and what it covered stays.
+    ///
+    /// A sound's box is a band only as tall as its waveform
+    /// ([`crate::docopen::sound_box`]): it has no picture to fill a square
+    /// with, so the page under it stays in sight.
     fn open_clip(
         &mut self,
         target: crate::docopen::DocTarget,
@@ -262,6 +267,11 @@ impl TerminalView {
             }
             None => self.float_home_for(row),
         };
+        let rect = if target.kind == crate::docopen::DocKind::Audio {
+            crate::docopen::sound_box(rect, crate::docview::video::BAR_H)
+        } else {
+            rect
+        };
         let opened = target.path.clone();
         let mut clip = Self::float_doc(target, None, rect, cx);
         clip.below = below;
@@ -270,9 +280,10 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// Whether a square is a clip: a video, which plays once and closes.
+    /// Whether a square is a clip: a video or a sound, which plays once and
+    /// closes.
     fn is_clip(float: &FloatingDoc, cx: &App) -> bool {
-        float.view.read(cx).target().kind == crate::docopen::DocKind::Video
+        float.view.read(cx).target().kind.plays()
     }
 
     /// The floating square, drawn with the hyperglow every surface that floats
@@ -577,7 +588,7 @@ impl TerminalView {
                 let why = crate::docview::html_ready(cx).err()?;
                 (why.sentence(), why.short_reason())
             }
-            crate::docopen::DocKind::Video => {
+            crate::docopen::DocKind::Video | crate::docopen::DocKind::Audio => {
                 let why = crate::docview::video_ready(cx).err()?;
                 (why.sentence(), why.short_reason())
             }
@@ -606,8 +617,8 @@ impl TerminalView {
     /// `docopen::link_route`. A heading in the same document never comes here;
     /// the view scrolls to it itself.
     ///
-    /// A video is the exception in the square: pressed on a page, or linked
-    /// from one, it opens as a clip over the page and takes nothing's place
+    /// A video or a sound is the exception in the square: pressed on a page,
+    /// or linked from one, it opens as a clip over the page and takes nothing's place
     /// ([`Self::open_clip`]). On the Document face it still takes the page's
     /// place, as before; a clip over the face is not built yet.
     fn follow_doc_link(
@@ -632,9 +643,7 @@ impl TerminalView {
                 if self.engine_refused(&target, None, cx).is_some() {
                     return;
                 }
-                if seat == crate::docopen::DocSeat::Float
-                    && target.kind == crate::docopen::DocKind::Video
-                {
+                if seat == crate::docopen::DocSeat::Float && target.kind.plays() {
                     self.open_clip(target, None, cx);
                     return;
                 }
@@ -1424,6 +1433,7 @@ impl TerminalView {
                         }
                         crate::docopen::DocKind::Image => "an image takes no notes",
                         crate::docopen::DocKind::Video => "a video takes no notes",
+                        crate::docopen::DocKind::Audio => "a sound takes no notes",
                         crate::docopen::DocKind::Pdf => "a PDF takes no notes",
                     }
                     .to_string()

@@ -752,7 +752,10 @@ impl DocumentView {
             DocKind::Image => Box::new(image::ImageDoc::load(&target.path, cx)),
             DocKind::Markdown => Box::new(markdown::MarkdownDoc::new()),
             DocKind::Html => Box::new(page::PageDoc::new(&target.path, engine(cx))),
-            DocKind::Video => Box::new(video::VideoDoc::open(&target.path, cx)),
+            DocKind::Video => Box::new(video::VideoDoc::open(&target.path, mpv::Picture::Film, cx)),
+            DocKind::Audio => {
+                Box::new(video::VideoDoc::open(&target.path, mpv::Picture::Waves, cx))
+            }
             DocKind::Pdf => Box::new(pdf::PdfDoc::open(&target.path, cx)),
         };
         cx.on_release(|view, cx| view.give_back(cx)).detach();
