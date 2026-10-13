@@ -45,6 +45,7 @@ use gpui::{
 use super::backend::{Backend, Drawn};
 use super::mpv::{Command, Player, Status};
 use super::DocumentView;
+use crate::docopen::DocSeat;
 use crate::theme::Theme;
 
 /// The bar's height, in logical pixels.
@@ -187,6 +188,13 @@ pub fn progress(s: &Status) -> Option<f64> {
 }
 
 /// A frame from the render thread as a picture gpui can draw.
+/// Pure. Whether a clip's end is news: it has played out, it is not looping,
+/// and nobody has been told yet. Told twice, the pane would close the square
+/// it had just put back.
+pub fn ends_now(ended: bool, looping: bool, told: bool) -> bool {
+    ended && !looping && !told
+}
+
 fn picture_of(frame: super::mpv::Frame) -> Option<Arc<RenderImage>> {
     let buf = image::RgbaImage::from_raw(frame.width, frame.height, frame.bgra)?;
     Some(Arc::new(RenderImage::new(vec![image::Frame::new(buf)])))
@@ -208,17 +216,29 @@ pub struct VideoDoc {
     scrubbing: bool,
     /// Whether a frame has been drawn yet, for `TD_DOCDEBUG`'s one line.
     drawn: bool,
+    /// It starts again at its end. Off in the square, where a video is a clip
+    /// that plays once and closes; on for the Document face.
+    looping: bool,
+    /// Its end has been told to the view, which says [`super::Finished`]
+    /// once and only once.
+    told_end: bool,
     _pump: Task<()>,
 }
 
 impl VideoDoc {
-    /// Start the video playing. The player wakes the view through a channel
-    /// whenever it leaves a frame or a change of status; the task that
-    /// listens is the view's, so it ends when the view does.
+    /// Start the video playing, once: a new view sits in the floating square,
+    /// and a video there is a clip that closes at its end. A view moved onto
+    /// the Document face loops from then on ([`Backend::seated`]).
+    ///
+    /// The player wakes the view through a channel whenever it leaves a frame
+    /// or a change of status; the task that listens is the view's, so it ends
+    /// when the view does.
     pub fn open(path: &Path, cx: &mut Context<DocumentView>) -> Self {
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<()>();
+        let looping = false;
         let player = Player::start(
             path,
+            looping,
             Arc::new(move || {
                 let _ = tx.unbounded_send(());
             }),
@@ -226,12 +246,15 @@ impl VideoDoc {
         let pump = cx.spawn(async move |this, cx| {
             while rx.next().await.is_some() {
                 let alive = this.update(cx, |view, cx| {
-                    let moved = view
+                    let (moved, ended) = view
                         .backend
                         .downcast_mut::<VideoDoc>()
-                        .is_some_and(|doc| doc.pull(cx));
+                        .map_or((false, false), |doc| (doc.pull(cx), doc.end_to_tell()));
                     if moved {
                         cx.notify();
+                    }
+                    if ended {
+                        cx.emit(super::Finished);
                     }
                 });
                 if alive.is_err() {
@@ -247,8 +270,19 @@ impl VideoDoc {
             asked: None,
             scrubbing: false,
             drawn: false,
+            looping,
+            told_end: false,
             _pump: pump,
         }
+    }
+
+    /// Whether the clip has just played out and nobody has been told: true
+    /// once, the first time it is asked after the end. A video that loops
+    /// never ends, so never answers true.
+    fn end_to_tell(&mut self) -> bool {
+        let tell = ends_now(self.status.ended, self.looping, self.told_end);
+        self.told_end |= tell;
+        tell
     }
 
     /// Take what the player left: the newest frame, and the status. Answers
@@ -522,6 +556,17 @@ impl Backend for VideoDoc {
         self.run(Command::Hold);
     }
 
+    /// In the square a video is a clip: it plays once, and its end closes it.
+    /// On the Document face it loops, as a video there always has, and a
+    /// clip split off into a pane of its own starts looping there.
+    fn seated(&mut self, seat: DocSeat) {
+        let looping = seat == DocSeat::Face;
+        if looping != self.looping {
+            self.looping = looping;
+            self.run(Command::Loop(looping));
+        }
+    }
+
     /// Space, ← and →, and M, on the Document face. A floating square takes
     /// none of them: over the terminal they belong to the prompt.
     fn key(&mut self, ks: &Keystroke, floating: bool, _cx: &mut Context<DocumentView>) -> bool {
@@ -544,6 +589,17 @@ impl Backend for VideoDoc {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A clip's end is told once, and only for a clip: a video looping on
+    /// the Document face never closes, and an end already told is not told
+    /// again, or the pane would close the square it had just put back.
+    #[test]
+    fn a_clip_says_it_finished_once_and_a_looping_video_never_does() {
+        assert!(ends_now(true, false, false));
+        assert!(!ends_now(false, false, false), "still playing");
+        assert!(!ends_now(true, true, false), "looping on the face");
+        assert!(!ends_now(true, false, true), "already told");
+    }
 
     /// A wide bar has every part, left to right, touching and inside the
     /// view; a narrow one drops the time and gives its room to the track.

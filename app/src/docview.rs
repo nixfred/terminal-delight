@@ -301,6 +301,13 @@ pub struct CannotShow {
 }
 impl EventEmitter<CannotShow> for DocumentView {}
 
+/// A clip in the square played to its end. The pane closes it and puts back
+/// the square it covered: a video opened over a page, or handed over by an
+/// agent after a render, goes away by itself. A video on the Document face
+/// loops and never says this.
+pub struct Finished;
+impl EventEmitter<Finished> for DocumentView {}
+
 // ── the page engine, one per TD process ───────────────────────────────────
 
 /// An engine, or the reason there is none.
@@ -790,6 +797,7 @@ impl DocumentView {
         }
         self.seat = seat;
         self.frame.set(None);
+        self.backend.seated(seat);
         cx.notify();
     }
 

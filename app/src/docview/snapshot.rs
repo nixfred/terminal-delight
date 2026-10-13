@@ -50,8 +50,8 @@ use serde_json::{json, Value};
 use super::cdp::{self, Cdp, CdpError, SessionId};
 use super::engine::{
     layout_hash, png_size, Anchor, Band, DialogRender, EngineError, Geometry, Link,
-    NotesCapability, Opener, PageEngine, PageId, PageLayout, PageRequest, RectCss, Target, Tile,
-    Unavailable,
+    NotesCapability, Opener, PageEngine, PageId, PageLayout, PageRequest, PageVideo, RectCss,
+    Target, Tile, Unavailable,
 };
 use super::pref;
 
@@ -62,7 +62,9 @@ pub const EXTRACT_JS: &str = include_str!("extract.js");
 /// 4: concurs are supported only where a script makes concur zones.
 /// 5: every id and `<a name>` says where it starts, for a fragment that
 ///    arrives from another document.
-pub const EXTRACT_VERSION: u32 = 5;
+/// 6: every `<video>` says where it is and what file it plays, so a press on
+///    it opens the file as a clip over the page.
+pub const EXTRACT_VERSION: u32 = 6;
 /// With no call for this long, the browser is closed.
 pub const IDLE_SHUTDOWN: Duration = Duration::from_secs(300);
 /// The names looked for on PATH, in order.
@@ -187,6 +189,7 @@ struct Extracted {
     openers: Vec<Opener>,
     dialogs: Vec<String>,
     diagnostics: Vec<String>,
+    videos: Vec<PageVideo>,
 }
 
 #[derive(Deserialize)]
@@ -910,6 +913,7 @@ impl PageEngine for SnapshotEngine {
                 openers: got.openers,
                 dialogs: got.dialogs,
                 diagnostics: got.diagnostics,
+                videos: Some(got.videos),
             })
         })
     }
