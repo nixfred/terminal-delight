@@ -75,6 +75,35 @@ fn alt_click_on_a_printed_picture_opens_a_square_and_escape_closes_it(cx: &mut T
     assert_eq!(pane.float_path(), None, "Escape closes the square");
 }
 
+/// Codex's file reference shape: a parenthesized path split across indented
+/// rows, with room left at the right edge. Both rows must hit the same file.
+#[gpui::test]
+fn codex_wrapped_file_reference_answers_alt_and_ctrl_click(cx: &mut TestAppContext) {
+    let dir = Scratch::new("codex-link");
+    let png = dir.fixture(PICTURE, "shot.png");
+    let png = png.to_str().unwrap().to_string();
+    let split = png.rfind('/').unwrap() + 1;
+    let (head, tail) = png.split_at(split);
+    let mut pane = Pane::running(
+        cx,
+        &format!("printf '%s\\n' '  Deliverable: Picture ({head}' '  {tail})' 'ready'; exec cat"),
+    );
+    pane.wait_for("ready");
+    let first = pane.point_at(head);
+    let second = pane.point_at(tail);
+    for at in [first, second] {
+        pane.click(at, Pane::alt());
+        assert_eq!(
+            pane.float_path().as_deref(),
+            Some(std::path::Path::new(&png))
+        );
+        pane.keys("escape");
+        let got = launched_by(&mut pane, at, held(false, true, false, false));
+        assert_eq!(got.len(), 1);
+        assert!(got[0].ends_with(&format!("xdg-open {png}")), "{got:?}");
+    }
+}
+
 /// The square's strip moves it with the hand, and its edge resizes it with the
 /// far side pinned. Neither leaves a selection in the grid behind it.
 #[gpui::test]

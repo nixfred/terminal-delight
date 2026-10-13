@@ -1275,24 +1275,21 @@ fn tool_defs() -> Value {
         {
             "name": "open_document",
             "description":
-                "Open a document IN TERMINAL DELIGHT, beside you — the page, \
-                 brief, picture, clip or PDF you just made, so the person reads it next \
-                 to your prompt instead of going to look for it. `path` is an \
-                 absolute path or a file:// URL to Markdown, HTML, an image, a video or \
-                 a PDF. \
-                 `placement` \"beside\" (the default) opens it in a pane of its \
-                 own to the right of yours, exactly as Ctrl+Alt+click on the \
-                 path does: a pane in your tab already showing the file is \
-                 focused instead, and at four panes it floats over your pane. \
-                 \"here\" floats it over your own pane, as Alt+click does. It \
-                 only ever opens in your own pane or tab, and takes no pid. Call \
-                 it after declare_deliverable, for an HTML or Markdown \
+                "Open the page, brief, picture, clip or PDF you just made INSIDE YOUR \
+                 PANE in Terminal Delight. `path` is an absolute path or a file:// \
+                 URL to Markdown, HTML, an image, a video or a PDF. `placement` \"here\" \
+                 (the default) floats it over your own pane, as Alt+click does. \
+                 Explicit \"beside\" opens it in a pane to the right of yours, as \
+                 Ctrl+Alt+click does: a pane in your tab already showing the file \
+                 is focused instead, and at four panes it floats over your pane. \
+                 It only ever opens in your own pane or tab, and takes no pid. \
+                 Call it after declare_deliverable, for an HTML or Markdown \
                  deliverable. Requires the writes toggle (TD_MCP_WRITE).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "absolute path (/home/you/report.html) or file:// URL of a Markdown, HTML, image, video or PDF file" },
-                    "placement": { "type": "string", "enum": ["beside", "here"], "description": "\"beside\" (default): a pane of its own beside yours; \"here\": floating over your own pane" }
+                    "placement": { "type": "string", "enum": ["beside", "here"], "description": "\"here\" (default): floating inside your own pane; \"beside\": a pane of its own beside yours" }
                 },
                 "required": ["path"],
                 "additionalProperties": false
@@ -2316,13 +2313,12 @@ fn picture_mime(path: &str) -> Option<&'static str> {
     })
 }
 
-/// `open_document` — an agent opens what it made beside itself.
+/// `open_document` — an agent opens what it made inside its own pane.
 ///
 /// The other half of a deliverable. `declare_deliverable` puts a click on the
-/// rail; this puts the document on screen beside the agent, so the person who
-/// asked for a brief is reading it the moment it exists. It changes the layout
-/// and writes nothing to any terminal: a split's new pane gets a fresh shell
-/// with no command line, as Ctrl+Alt+click's does.
+/// rail; this puts the document on screen in the agent's pane, so the person
+/// reads it when it exists. Explicit "beside" requests a split instead.
+/// Neither placement writes anything to a terminal.
 ///
 /// Scoped to the caller with no way out: there is no pane argument, the pid in
 /// the request is filled in from who called, and the router it goes through
@@ -2364,8 +2360,8 @@ where
         ));
     }
     let placement = match args.get("placement").and_then(Value::as_str) {
-        None | Some("beside") => Placement::Beside,
-        Some("here") => Placement::Here,
+        None | Some("here") => Placement::Here,
+        Some("beside") => Placement::Beside,
         Some(other) => {
             return tool_err(&format!(
                 "placement {other:?} is not one of \"beside\" or \"here\""
@@ -3778,14 +3774,19 @@ mod tests {
         assert_eq!(out["isError"], true);
     }
 
-    /// "beside" is the default and asks for a pane beside the caller; "here"
-    /// floats over it. A file:// URL is a path, decoded.
+    /// Delivery defaults to the caller's own pane. A split requires an explicit
+    /// "beside"; "here" and a file:// URL still work.
     #[test]
-    fn open_document_lands_beside_the_caller_or_over_it() {
+    fn open_document_defaults_inside_the_caller_and_only_splits_when_requested() {
         let md = TempDoc::new("my report.md", "# made this turn\n");
         let (out, seen) = open_as_caller(json!({ "path": md.path() }));
-        assert_eq!(seen[0].placement, Placement::Beside);
+        assert_eq!(seen[0].placement, Placement::Here);
         assert_eq!(seen[0].target.kind, crate::docopen::DocKind::Markdown);
+        assert_eq!(out["structuredContent"]["placement"], "here");
+        assert!(text_of(&out).contains("float pane 9"), "{}", text_of(&out));
+
+        let (out, seen) = open_as_caller(json!({ "path": md.path(), "placement": "beside" }));
+        assert_eq!(seen[0].placement, Placement::Beside);
         assert_eq!(out["structuredContent"]["placement"], "beside");
         assert!(
             text_of(&out).contains("opened in pane 12"),
