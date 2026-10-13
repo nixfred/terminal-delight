@@ -1190,6 +1190,7 @@ fn a_press_on_a_video_in_a_page_opens_it_as_a_clip_over_the_page(cx: &mut TestAp
     );
     pane.html_engine(Ok(std::sync::Arc::new(FakeFilmEngine {
         src: Some(format!("file://{film}")),
+        sound: false,
     })));
     pane.video_ready(Ok(()));
     pane.wait_for("ready");
@@ -1248,6 +1249,7 @@ fn a_press_on_a_video_the_page_carries_inside_itself_opens_it_as_a_clip(cx: &mut
     );
     pane.html_engine(Ok(std::sync::Arc::new(FakeFilmEngine {
         src: Some(address),
+        sound: false,
     })));
     pane.video_ready(Ok(()));
     pane.wait_for("ready");
@@ -1281,6 +1283,95 @@ fn a_press_on_a_video_the_page_carries_inside_itself_opens_it_as_a_clip(cx: &mut
     assert_eq!(desktop_launches(), Vec::<String>::new());
 }
 
+/// A sound plays the way a film does. A press on a page's `<audio>`, whose
+/// sound the page carries inside itself, opens it as a clip over the page,
+/// from the file the page cache kept, named so it opens as a sound. Its box
+/// is a band only as tall as its waveform, so most of the page stays in
+/// sight, and Escape puts the page back on top. An Alt+click on a sound's
+/// path opens the same box. Parker, 2026-10-13, of the takes page: "let's
+/// get the same treatment for audio files."
+#[gpui::test]
+fn a_press_on_a_sound_in_a_page_opens_it_as_a_band_over_the_page(cx: &mut TestAppContext) {
+    use base64::Engine;
+    let take = b"OggS\0\x02\0\0\0\0\0\0\0\0\0\0\x9b\xc7\xfa\xbfOpusHeadcarried";
+    let address = format!(
+        "data:audio/ogg;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(take)
+    );
+    let dir = Scratch::new("sound-carried");
+    let song = dir.join("song.mp3");
+    std::fs::write(&song, b"ID3\x04\0\0\0\0\0\x23TSSE").expect("write");
+    let song = song.to_str().expect("UTF-8").to_string();
+    let page = dir.fixture("tests/fixtures/page/brief.html", "takes.html");
+    let page = page.to_str().expect("UTF-8").to_string();
+    // The song's line above the page's, so the page's square, which opens
+    // below its own line, never covers the song's path.
+    let mut pane = Pane::running(
+        cx,
+        &format!("printf '%s\\n' 'song {song}' 'page {page}' 'ready'; exec cat"),
+    );
+    pane.html_engine(Ok(std::sync::Arc::new(FakeFilmEngine {
+        src: Some(address),
+        sound: true,
+    })));
+    pane.video_ready(Ok(()));
+    pane.wait_for("ready");
+
+    let at = pane.point_at(&page);
+    pane.click(at, Pane::alt());
+    pane.redraw();
+    pane.redraw();
+    let square = pane.float_view().expect("the page's square");
+    let page_rect = pane.float_rect().expect("drawn");
+    let body = pane.float_zone(FloatHit::Body).expect("the page's body");
+    pane.click(Pane::middle(body), Default::default());
+    pane.redraw();
+    let opened = pane
+        .float_path()
+        .expect("the sound opens as the box on top");
+    assert!(
+        opened.starts_with(crate::docview::cache::root()) && opened.ends_with("clip.ogg"),
+        "from the file the page cache kept, as a sound: {}",
+        opened.display()
+    );
+    assert_eq!(
+        std::fs::read(&opened).expect("kept"),
+        take,
+        "the sound itself"
+    );
+    let under = pane.read(|v| {
+        v.float
+            .as_ref()
+            .and_then(|f| f.below.as_ref())
+            .map(|b| b.view.clone())
+    });
+    assert_eq!(under, Some(square.clone()), "the page is under it");
+    let band = pane.float_rect().expect("the sound is drawn");
+    let wave = band.3 - crate::docopen::FLOAT_STRIP_H - crate::docview::video::BAR_H;
+    assert!(
+        (band.2 / wave - crate::docopen::SOUND_SHAPE).abs() < 0.05,
+        "a band as tall as its waveform: {band:?}"
+    );
+    assert!(
+        band.1 > page_rect.1 && band.1 + band.3 < page_rect.1 + page_rect.3 * 0.75,
+        "inside the page, which stays mostly in sight: {band:?} in {page_rect:?}"
+    );
+    pane.keys("escape");
+    assert_eq!(pane.float_view(), Some(square), "the page is back on top");
+
+    let at = pane.point_at(&song);
+    pane.click(at, Pane::alt());
+    pane.redraw();
+    assert_eq!(
+        pane.float_path().as_deref(),
+        Some(std::path::Path::new(&song)),
+        "Alt+click on a sound's path opens the same box"
+    );
+    let band = pane.float_rect().expect("drawn");
+    assert!(band.3 < page_rect.3 * 0.75, "a band again: {band:?}");
+    assert_eq!(desktop_launches(), Vec::<String>::new());
+}
+
 /// A press on a page's video that names no file opens nothing, and the bar
 /// says why. Before, it did nothing at all, which reads as a press that
 /// never landed. Answers what the bar said. `tag` names the scratch
@@ -1293,7 +1384,10 @@ fn press_a_video_with_no_file(cx: &mut TestAppContext, tag: &str, src: Option<St
         cx,
         &format!("printf '%s\\n' 'page {page}' 'ready'; exec cat"),
     );
-    pane.html_engine(Ok(std::sync::Arc::new(FakeFilmEngine { src })));
+    pane.html_engine(Ok(std::sync::Arc::new(FakeFilmEngine {
+        src,
+        sound: false,
+    })));
     pane.video_ready(Ok(()));
     pane.wait_for("ready");
 

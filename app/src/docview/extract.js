@@ -139,17 +139,18 @@
     });
   }
 
-  /* HOOK for clips: every <video> outside a dialog, with its box and the
-     file it plays. The picture TD shows is a photograph, so the player in it
-     cannot play; a press on its box opens the file as a clip over the page
-     instead. The file is the source the browser chose, else the first
-     <source>, else the src attribute, each as the browser resolved it. A
-     film the page carries inside itself is a data: address, reported whole
-     for TD to keep as a file. A video fed by a script (a blob, a stream)
-     names no file: null. */
+  /* HOOK for clips: every <video> and <audio> outside a dialog, in document
+     order, with its box and the file it plays, and whether it is a sound.
+     The picture TD shows is a photograph, so the player in it cannot play; a
+     press on its box opens the file as a clip over the page instead. The
+     file is the source the browser chose, else the first <source>, else the
+     src attribute, each as the browser resolved it. A film or a sound the
+     page carries inside itself is a data: address, reported whole for TD to
+     keep as a file. One fed by a script (a blob, a stream) names no file:
+     null. */
   function videosIn(root, dx, dy) {
     var out = [];
-    Array.prototype.forEach.call(root.querySelectorAll('video'), function (v) {
+    Array.prototype.forEach.call(root.querySelectorAll('video, audio'), function (v) {
       if (v.closest('dialog')) return;
       var src = v.currentSrc || '';
       if (!src) {
@@ -158,7 +159,11 @@
         else if (v.getAttribute('src')) src = v.src;
       }
       if (/^(blob|mediastream):/i.test(src)) src = '';
-      out.push({ src: src || null, rect: box(v, dx, dy) });
+      out.push({
+        src: src || null,
+        rect: box(v, dx, dy),
+        sound: v.tagName === 'AUDIO'
+      });
     });
     return out;
   }

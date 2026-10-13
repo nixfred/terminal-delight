@@ -155,7 +155,9 @@ impl Missing {
     /// Why, in a sentence, and nothing about what happened instead.
     pub fn reason(&self) -> String {
         match self {
-            Missing::NotFound => "No libmpv found (install mpv to play video in TD).".into(),
+            Missing::NotFound => {
+                "No libmpv found (install mpv to play video and sound in TD).".into()
+            }
             Missing::TooOld(name) => {
                 format!("The libmpv found has no {name}; it is older than TD needs.")
             }
@@ -375,11 +377,43 @@ pub struct Player {
     shared: Arc<Mutex<Shared>>,
 }
 
+/// What a player draws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Picture {
+    /// The file's own picture: a video.
+    Film,
+    /// The file's sound, drawn by mpv as a waveform [`WAVES`] pixels in size,
+    /// white on black, moving as it plays: a file that is only sound. Its own
+    /// picture, if it has one (an album's cover), is not shown.
+    Waves,
+}
+
+/// The size mpv draws a sound's waveform at, before it is scaled to the view.
+pub const WAVES: (u32, u32) = (1200, 480);
+
+/// The filter graph that draws a sound: its first sound track split in two,
+/// one half to the speakers and the other drawn as a line from the middle
+/// out, on a square-root scale so a quiet passage still moves.
+fn waves_graph() -> CString {
+    let (w, h) = WAVES;
+    CString::new(format!(
+        "[aid1] asplit [ao] [w]; \
+         [w] showwaves=s={w}x{h}:mode=cline:rate=30:draw=full:scale=sqrt:colors=white [vo]"
+    ))
+    .expect("no NUL in the graph")
+}
+
 impl Player {
-    /// Start playing `path`, with sound, once or `looping`. Answers at once:
-    /// the file is opened on the control thread, and anything that goes wrong
-    /// there is said in [`Status::error`], after a poke.
-    pub fn start(path: &Path, looping: bool, poke: Poke) -> Result<Player, String> {
+    /// Start playing `path`, with sound, once or `looping`, drawing what
+    /// `picture` says. Answers at once: the file is opened on the control
+    /// thread, and anything that goes wrong there is said in
+    /// [`Status::error`], after a poke.
+    pub fn start(
+        path: &Path,
+        looping: bool,
+        picture: Picture,
+        poke: Poke,
+    ) -> Result<Player, String> {
         let lib = lib().map_err(|why| why.reason())?;
         let path = CString::new(path.as_os_str().as_encoded_bytes())
             .map_err(|_| "The path has a NUL byte in it.".to_string())?;
@@ -395,6 +429,7 @@ impl Player {
                     lib,
                     path,
                     looping,
+                    picture,
                     Channels {
                         rx: control_rx,
                         wake,
@@ -499,7 +534,7 @@ const WATCHED: [(u64, &CStr, c_int); 6] = [
 /// The options every video is played with. The person's own `mpv.conf` is
 /// not read: it can name a video output that opens a window of its own,
 /// which is the one thing a video in a square must never do.
-const OPTIONS: [(&CStr, &CStr); 10] = [
+const OPTIONS: [(&CStr, &CStr); 11] = [
     (c"config", c"no"),
     (c"vo", c"libmpv"),
     (c"terminal", c"no"),
@@ -509,14 +544,20 @@ const OPTIONS: [(&CStr, &CStr); 10] = [
     (c"load-scripts", c"no"),
     (c"ytdl", c"no"),
     (c"hwdec", c"no"),
-    // A file with only sound draws nothing rather than its cover art.
+    // A file with only sound draws nothing rather than its cover art; one
+    // opened as a sound draws its waveform instead ([`Picture::Waves`]).
     (c"audio-display", c"no"),
+    // With no sound device, a clip plays to its end in silence and closes. A
+    // film did so already; a waveform, whose graph feeds the speakers, would
+    // otherwise end in an error and sit there saying so.
+    (c"audio-fallback-to-null", c"yes"),
 ];
 
 fn control(
     lib: &'static Lib,
     path: CString,
     looping: bool,
+    picture: Picture,
     ch: Channels,
     shared: Arc<Mutex<Shared>>,
     poke: Poke,
@@ -531,10 +572,22 @@ fn control(
         for (name, value) in OPTIONS {
             (lib.set_option_string)(mpv, name.as_ptr(), value.as_ptr());
         }
+        // The sound output mpv uses, when one is named: `null` plays every
+        // clip in silence without looking for a device at all, which is how
+        // the bench check plays them (`scripts/video-check.sh`).
+        if let Some(ao) = std::env::var_os("TD_MPV_AO")
+            .and_then(|v| CString::new(v.as_encoded_bytes().to_vec()).ok())
+        {
+            (lib.set_option_string)(mpv, c"ao".as_ptr(), ao.as_ptr());
+        }
         // A video on a pane's Document face loops, the way a GIF does; a clip
         // in the square plays once and reports its end, which closes it.
         let times = if looping { c"inf" } else { c"no" };
         (lib.set_option_string)(mpv, c"loop-file".as_ptr(), times.as_ptr());
+        if picture == Picture::Waves {
+            let graph = waves_graph();
+            (lib.set_option_string)(mpv, c"lavfi-complex".as_ptr(), graph.as_ptr());
+        }
         let r = (lib.initialize)(mpv);
         if r < 0 {
             (lib.terminate_destroy)(mpv);

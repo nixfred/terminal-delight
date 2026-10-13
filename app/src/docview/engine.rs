@@ -165,17 +165,23 @@ pub struct PageLayout {
     pub dialogs: Vec<String>,
     /// Page errors, dead openers, dialogs that overflowed.
     pub diagnostics: Vec<String>,
-    /// Every `<video>` outside a dialog, in document order. `None` from a
-    /// probe too old to report them, which is unknown, not "has none".
+    /// Every `<video>` and `<audio>` outside a dialog, in document order.
+    /// `None` from a probe too old to report them, which is unknown, not
+    /// "has none".
     #[serde(default)]
     pub videos: Option<Vec<PageVideo>>,
 }
 
-/// A `<video>` on a page. The page is a photograph, so the video in it is a
-/// picture of a player; a press on its box opens the file it plays as a clip
-/// over the page instead.
+/// A `<video>` or `<audio>` on a page. The page is a photograph, so the
+/// player in it is a picture of a player; a press on its box opens the file
+/// it plays as a clip over the page instead.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PageVideo {
+    /// An `<audio>`: a sound, not a film. Absent in a layout from a probe
+    /// that reported only `<video>`s, where every one is a film, so false
+    /// there is what the probe saw rather than a guess.
+    #[serde(default)]
+    pub sound: bool,
     /// The file it plays, as the browser resolved it against the page:
     /// the source it chose, else its first `<source>`, else its `src`.
     /// A film the page carries inside itself arrives as its `data:` address,

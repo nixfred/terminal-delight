@@ -20,9 +20,17 @@
 #      same.
 #   7. the same press on a page that carries its film inside itself, as a
 #      data: address, opens the copy the page cache kept of that film.
+#   8. a press on an <audio> whose sound the page carries opens it as a clip
+#      too, a band over the page drawing the sound's waveform, which closes
+#      at the sound's end; `doc here` on a sound does the same.
 #
-# Sound is routed nowhere: the window gets no PulseAudio, no PipeWire and an
-# empty ALSA config, so a clip with a soundtrack plays silently here.
+# Sound is routed nowhere: mpv is told to play into no output at all
+# (TD_MPV_AO=null), so a clip with a soundtrack plays silently here, and a
+# sound plays its waveform in silence. The window also gets no PulseAudio, no
+# PipeWire and an empty ALSA config, for anything else that might make one.
+# Breaking those alone is not enough: mpv then probes each output in turn for
+# every clip with sound, and in a window whose servers point at nothing the
+# probe sooner or later hangs (the sixth or seventh clip in a row, measured).
 # Photographs land in $OUT. Exits non-zero on the first check that fails.
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -35,6 +43,10 @@ ffmpeg -v error -y -f lavfi -i testsrc2=size=640x360:rate=30 -t 6 \
   -c:v libx264 -pix_fmt yuv420p "$OUT/bars.mp4" || { echo "ffmpeg could not make a clip"; exit 2; }
 ffmpeg -v error -y -f lavfi -i testsrc2=size=640x360:rate=30 -t 2 \
   -c:v libx264 -pix_fmt yuv420p "$OUT/short.mp4" || { echo "ffmpeg could not make a clip"; exit 2; }
+# A tone that swells and fades, so its waveform visibly moves: Opus in Ogg, as
+# the cinema-delight takes pages carry theirs.
+ffmpeg -v error -y -f lavfi -i 'aevalsrc=0.8*sin(2*PI*220*t)*(0.55+0.45*sin(2*PI*1.5*t)):d=2.5:s=48000' \
+  -c:a libopus "$OUT/take.ogg" || { echo "ffmpeg could not make a sound"; exit 2; }
 cat > "$OUT/page.html" <<'EOF'
 <!doctype html><html><body style="margin:0;background:#111;color:#ddd;font:18px sans-serif">
 <h1 style="font-size:24px;margin:16px">A page with a film in it</h1>
@@ -63,7 +75,7 @@ trap 'pkill -f "$OUT/bin/claude" 2>/dev/null; hidden_cleanup' EXIT
 LOG="$OUT/window.log"
 {
   echo "export TD_SESSION=$SESSION PATH=$OUT/bin:\$PATH XDG_CACHE_HOME=$OUT/cache XDG_STATE_HOME=$OUT/state TD_DOCDEBUG=1"
-  echo "export PULSE_SERVER=unix:/nonexistent PIPEWIRE_REMOTE=/nonexistent ALSA_CONFIG_PATH=$OUT/empty-alsa.conf"
+  echo "export TD_MPV_AO=null PULSE_SERVER=unix:/nonexistent PIPEWIRE_REMOTE=/nonexistent ALSA_CONFIG_PATH=$OUT/empty-alsa.conf"
   echo "exec $TD > $LOG 2>&1"
 } > "$OUT/launch.sh"
 hidden_launch "$SESSION" "$WS" "$LOG" "sh $OUT/launch.sh"
@@ -200,6 +212,51 @@ check "which is the film itself" "$(cmp -s "$opened" "$OUT/short.mp4"; echo $?)"
 shot carried-clip-over-page
 sleep 3
 check "at its end the page is on top again" "$(case "$(floating)" in *carried.html) echo 0 ;; *) echo 1 ;; esac)"
+echo "   close: $(ctl doc close)"
+probe
+
+echo "== 8 · a sound the page carries opens as a clip, drawn as its waveform"
+# The page cache keeps it as pages/clip-<key>/clip.ogg: named as a sound, so
+# it opens as one. TD_DOCDEBUG logs the first frame drawn, at the waveform's
+# own size, which says mpv drew the sound rather than nothing.
+{
+  echo '<!doctype html><html><body style="margin:0;background:#111;color:#ddd;font:18px sans-serif">'
+  echo '<h1 style="font-size:24px;margin:16px">A page that carries its takes</h1>'
+  printf '<audio controls preload="none" src="data:audio/ogg;base64,%s" style="display:block;width:90%%;height:360px;margin:0 auto"></audio>\n' \
+    "$(base64 -w0 "$OUT/take.ogg")"
+  echo '</body></html>'
+} > "$OUT/takes.html"
+echo "   page: $(ctl doc here "$OUT/takes.html")"
+opened=""
+for _ in $(seq 1 30); do
+  sleep 0.5
+  case "$(floating)" in */clip.ogg) opened=$(floating); break ;; esac
+  probe
+  BODY=$(grep -m1 '^float .* Body$' "$PROBE")
+  [ -n "$BODY" ] || continue
+  AT=$(echo "$BODY" | awk '{printf "%d %d", $2 + $4/2, $3 + 70 + $4/10}')
+  ctl bench click $AT >/dev/null
+done
+echo "   press on the sound: ${opened:-nothing opened}"
+check "a press on the page's sound opens it as a clip" "$([ -n "$opened" ]; echo $?)"
+check "from the copy the page cache kept, named as a sound" \
+  "$(case "$opened" in "$OUT/cache/terminal-delight/pages/clip-"*/clip.ogg) echo 0 ;; *) echo 1 ;; esac)"
+check "which is the sound itself" "$(cmp -s "$opened" "$OUT/take.ogg"; echo $?)"
+sleep 0.6; probe
+check "the page is under it, covered and kept" "$(grep -q '^float .* Covered$' "$PROBE"; echo $?)"
+check "its player is running ($(threads))" "$([ "$(threads)" -ge 2 ]; echo $?)"
+drew=$(grep -m1 "\[doc\] drew .*clip.ogg" "$LOG"); echo "   ${drew:-no frame drawn}"
+check "it draws the sound's waveform" "$(case "$drew" in *" 1200x480 as "*) echo 0 ;; *) echo 1 ;; esac)"
+shot sound-over-page
+sleep 3
+now=$(floating); echo "   after its end: float=$now"
+check "at its end it closes and the page is on top again" "$(case "$now" in *takes.html) echo 0 ;; *) echo 1 ;; esac)"
+check "its threads end with it ($(threads))" "$([ "$(threads)" -eq 0 ]; echo $?)"
+echo "   an agent hands over a sound: $(ctl doc here "$OUT/take.ogg")"
+sleep 0.6
+check "doc here on a sound opens it over the page" "$(case "$(floating)" in *take.ogg) echo 0 ;; *) echo 1 ;; esac)"
+sleep 3.5
+check "and it too goes at its end, leaving the page" "$(case "$(floating)" in *takes.html) echo 0 ;; *) echo 1 ;; esac)"
 echo "   close: $(ctl doc close)"
 probe
 

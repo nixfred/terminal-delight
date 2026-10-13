@@ -133,15 +133,15 @@ pub fn lookup(root: &Path, key: CacheKey) -> Option<Cached> {
     Some(Cached { layout, tiles })
 }
 
-/// A page whose `<video>` plays a `data:` address carries the film inside
-/// itself — a page that must survive being sent as one file does — and that
-/// address is no file a clip can be opened from. Each one is kept here as a
-/// file, once per address, and its `src` becomes that file's `file://`
-/// address, so a press on it opens a clip like any other video's. Every
-/// render of the page, at any width, shares the one copy.
+/// A page whose `<video>` or `<audio>` plays a `data:` address carries the
+/// film or sound inside itself — a page that must survive being sent as one
+/// file does — and that address is no file a clip can be opened from. Each
+/// one is kept here as a file, once per address, and its `src` becomes that
+/// file's `file://` address, so a press on it opens a clip like any other.
+/// Every render of the page, at any width, shares the one copy.
 ///
-/// One that cannot be kept — not base64, not a video, or refused by the
-/// disk — names no file, as a video a script feeds does, and why is
+/// One that cannot be kept — not base64, not a video or sound, or refused by
+/// the disk — names no file, as one a script feeds does, and why is
 /// answered for the page's diagnostics.
 pub fn keep_clips(root: &Path, videos: &mut [PageVideo]) -> Vec<String> {
     let mut why = Vec::new();
@@ -155,10 +155,11 @@ pub fn keep_clips(root: &Path, videos: &mut [PageVideo]) -> Vec<String> {
         {
             continue;
         }
-        match keep_clip(root, address) {
+        match keep_clip(root, address, v.sound) {
             Ok(file) => v.src = Some(file_url(&file)),
             Err(e) => {
-                why.push(format!("a video the page carries was not kept: {e}"));
+                let what = if v.sound { "a sound" } else { "a video" };
+                why.push(format!("{what} the page carries was not kept: {e}"));
                 v.src = None;
                 v.unkept = Some(e.to_string());
             }
@@ -167,7 +168,7 @@ pub fn keep_clips(root: &Path, videos: &mut [PageVideo]) -> Vec<String> {
     why
 }
 
-fn keep_clip(root: &Path, address: &str) -> io::Result<PathBuf> {
+fn keep_clip(root: &Path, address: &str, sound: bool) -> io::Result<PathBuf> {
     static N: AtomicU64 = AtomicU64::new(0);
     let refuse = |why: String| io::Error::new(io::ErrorKind::InvalidData, why);
     let (head, body) = address[5..]
@@ -180,8 +181,8 @@ fn keep_clip(root: &Path, address: &str) -> io::Result<PathBuf> {
     }
     // The first bytes say what the file is when the address does not.
     let first = super::cdp::base64_decode(body.get(..16).unwrap_or(body)).unwrap_or_default();
-    let ext = clip_ext(&mime, &first)
-        .ok_or_else(|| refuse(format!("{mime:?} is not a video TD plays")))?;
+    let ext = clip_ext(&mime, &first, sound)
+        .ok_or_else(|| refuse(format!("{mime:?} is not a video or sound TD plays")))?;
     let name = format!("clip-{:016x}", fnv64(address.as_bytes()));
     let done = root.join(&name);
     let file = done.join(format!("clip.{ext}"));
@@ -212,9 +213,14 @@ fn keep_clip(root: &Path, address: &str) -> io::Result<PathBuf> {
     Ok(file)
 }
 
-/// The extension TD opens a video by, from the address's media type, else
-/// from the file's own first bytes.
-fn clip_ext(mime: &str, first: &[u8]) -> Option<&'static str> {
+/// The extension TD opens a video or sound by, from the address's media
+/// type, else from the file's own first bytes. The extension is what decides
+/// whether it opens as a film or as a sound (`docopen::doc_kind`). A media
+/// type says which for itself; bytes that could be either (MP4 and M4A, WebM,
+/// Ogg) are named for the element that plays them, a `<video>` or an
+/// `<audio>`.
+fn clip_ext(mime: &str, first: &[u8], sound: bool) -> Option<&'static str> {
+    let either = |film: &'static str, song: &'static str| Some(if sound { song } else { film });
     match mime {
         "video/mp4" | "video/x-m4v" => Some("mp4"),
         "video/webm" => Some("webm"),
@@ -222,11 +228,22 @@ fn clip_ext(mime: &str, first: &[u8]) -> Option<&'static str> {
         "video/quicktime" => Some("mov"),
         "video/x-matroska" => Some("mkv"),
         "video/x-msvideo" | "video/avi" => Some("avi"),
+        "audio/mpeg" | "audio/mp3" => Some("mp3"),
+        "audio/mp4" | "audio/x-m4a" | "audio/m4a" => Some("m4a"),
+        "audio/aac" | "audio/aacp" => Some("aac"),
+        "audio/ogg" | "audio/vorbis" => Some("ogg"),
+        "audio/opus" => Some("opus"),
+        "audio/flac" | "audio/x-flac" => Some("flac"),
+        "audio/wav" | "audio/wave" | "audio/x-wav" | "audio/vnd.wave" => Some("wav"),
+        "audio/webm" => Some("weba"),
         "" | "application/octet-stream" => match first {
-            [_, _, _, _, b'f', b't', b'y', b'p', ..] => Some("mp4"),
-            [0x1a, 0x45, 0xdf, 0xa3, ..] => Some("webm"),
-            [b'O', b'g', b'g', b'S', ..] => Some("ogv"),
+            [_, _, _, _, b'f', b't', b'y', b'p', ..] => either("mp4", "m4a"),
+            [0x1a, 0x45, 0xdf, 0xa3, ..] => either("webm", "weba"),
+            [b'O', b'g', b'g', b'S', ..] => either("ogv", "ogg"),
             [b'R', b'I', b'F', b'F', _, _, _, _, b'A', b'V', b'I', b' ', ..] => Some("avi"),
+            [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'A', b'V', b'E', ..] => Some("wav"),
+            [b'I', b'D', b'3', ..] => Some("mp3"),
+            [b'f', b'L', b'a', b'C', ..] => Some("flac"),
             _ => None,
         },
         _ => None,
@@ -577,10 +594,49 @@ mod tests {
 
     fn video(src: &str) -> PageVideo {
         PageVideo {
+            sound: false,
             src: Some(src.into()),
             rect: None,
             unkept: None,
         }
+    }
+
+    fn sound(src: &str) -> PageVideo {
+        PageVideo {
+            sound: true,
+            ..video(src)
+        }
+    }
+
+    /// A sound the page carries is kept as a file named so it opens as a
+    /// sound: by its media type when the address gives one, and by its bytes
+    /// and the `<audio>` that plays it when it does not, so the same Ogg
+    /// bytes a `<video>` plays are kept as a film.
+    #[test]
+    fn a_sound_the_page_carries_is_kept_under_a_name_that_opens_as_a_sound() {
+        let root = scratch("clips-sound");
+        let opus = b"OggS\0\x02\0\0\0\0\0\0\0\0\0\0\x9b\xc7\xfa\xbfOpusHead";
+        let mut kept = vec![
+            sound(&data("audio/ogg", opus)),
+            sound(&data("", opus)),
+            // Bytes cut shorter, so a different address: one address is
+            // kept once, under the name it was first kept by.
+            video(&data("", &opus[..18])),
+            sound(&data("audio/mpeg", b"ID3\x04\0\0\0\0\0\x23TSSE")),
+        ];
+        assert!(keep_clips(&root, &mut kept).is_empty());
+        let ends = |v: &PageVideo, ext: &str| {
+            v.src
+                .as_deref()
+                .is_some_and(|s| s.ends_with(&format!("/clip.{ext}")))
+        };
+        assert!(ends(&kept[0], "ogg"), "{:?}", kept[0]);
+        assert!(ends(&kept[1], "ogg"), "{:?}", kept[1]);
+        assert!(ends(&kept[2], "ogv"), "{:?}", kept[2]);
+        assert!(ends(&kept[3], "mp3"), "{:?}", kept[3]);
+        let file = kept_clip(&root, kept[0].src.as_deref().unwrap()).unwrap();
+        assert_eq!(std::fs::read(file).unwrap(), opus);
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
@@ -590,6 +646,7 @@ mod tests {
             video(&data("video/mp4", FILM)),
             video("file:///films/beside.mp4"),
             PageVideo {
+                sound: false,
                 src: None,
                 rect: None,
                 unkept: None,

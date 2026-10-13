@@ -256,12 +256,16 @@ pub fn unplayable_at(videos: &[PageVideo], map: &PageToView, at: Point<Pixels>) 
                 .and_then(|rc| place(rc, map))
                 .is_some_and(|b| b.contains(&at))
     })?;
+    let (what, carried) = if v.sound {
+        ("this sound", "this sound")
+    } else {
+        ("this video", "this video's film")
+    };
     Some(match &v.unkept {
-        Some(why) => format!("this video's film could not be kept as a file to play: {why}"),
-        None => {
-            "this video is played by the page's own script, so there is no file to open it from"
-                .into()
-        }
+        Some(why) => format!("{carried} could not be kept as a file to play: {why}"),
+        None => format!(
+            "{what} is played by the page's own script, so there is no file to open it from"
+        ),
     })
 }
 
@@ -2752,6 +2756,7 @@ mod tests {
         let film = "file:///r/campaigns/out/welcome-pass-one.mp4";
         let videos = vec![
             PageVideo {
+                sound: false,
                 src: Some(film.into()),
                 rect: Some(RectCss {
                     x: 40.0,
@@ -2762,6 +2767,7 @@ mod tests {
                 unkept: None,
             },
             PageVideo {
+                sound: false,
                 src: None,
                 rect: Some(RectCss {
                     x: 40.0,
@@ -2813,7 +2819,7 @@ mod tests {
             "beside it"
         );
         let refused = vec![PageVideo {
-            unkept: Some("\"text/plain\" is not a video TD plays".into()),
+            unkept: Some("\"text/plain\" is not a video or sound TD plays".into()),
             ..videos[1].clone()
         }];
         let said = unplayable_at(&refused, &lower, at(100., 400.)).expect("the unkept one");
@@ -2821,5 +2827,12 @@ mod tests {
             said.contains("could not be kept") && said.contains("text/plain"),
             "{said}"
         );
+        // A sound that names no file says so as a sound, not as a video.
+        let fed = vec![PageVideo {
+            sound: true,
+            ..videos[1].clone()
+        }];
+        let said = unplayable_at(&fed, &lower, at(100., 400.)).expect("the fed sound");
+        assert!(said.starts_with("this sound "), "{said}");
     }
 }
