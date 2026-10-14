@@ -137,6 +137,11 @@ reaches 1.0. Until then, `0.x` minor bumps may include breaking changes.
 
 ### Fixed
 
+- **An MCP pid too big for 32 bits is refused instead of landing on another
+  pane.** The pid was cut to its low 32 bits, so `4294967396` addressed pid
+  100: `pane_events`, `get_pane_config`, `set_pane_config`, `leave_note`,
+  `declare_deliverable` and `present_surface` could read or change a pane the
+  caller never named. They now answer "pid is out of range".
 - **Escape reaches a pane again after it closes the reader there.** Closing
   the FOCUS reader with Escape never told the pane it had been reading, so from
   then on Escape and the page keys in that pane went to a reader that was no
