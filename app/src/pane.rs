@@ -6242,6 +6242,19 @@ impl TerminalView {
         let Some(edit) = note.edit.as_mut() else {
             return false;
         };
+        // A paste is the paper's, by the same three chords a document note
+        // takes. ctrl+shift+v used to stay the pane's, and the pane typed the
+        // clipboard into the shell under the note; ctrl+v and shift+insert
+        // reached here and then vanished, because `apply` drops ctrl chords
+        // and has no arm for insert.
+        let m = &ks.modifiers;
+        if crate::workbench::is_paste_chord(ks.key.as_str(), m.control, m.shift) {
+            if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+                edit.buf.insert_capped(&text, crate::sticky::MAX_CHARS);
+            }
+            cx.notify();
+            return true;
+        }
         match crate::sticky::press(true, ks.key.as_str()) {
             crate::sticky::Press::Pass => return false,
             crate::sticky::Press::Post => self.sticky_commit(cx),
@@ -6571,6 +6584,30 @@ impl TerminalView {
         let Some(mut buf) = self.renaming.take() else {
             return Handled::Declined;
         };
+        // A paste is the name's, by the same three chords a note takes.
+        // ctrl+shift+v used to stay the pane's, and the pane typed the
+        // clipboard into the shell under the header. ctrl+v and shift+insert
+        // reached here and vanished, because a modified key is not a character.
+        let m = &ks.modifiers;
+        if crate::workbench::is_paste_chord(k.key, m.control, m.shift) {
+            if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+                // A name is one line: a line break or tab in the clipboard
+                // becomes a space, and any other control character is dropped.
+                for ch in text.chars() {
+                    if buf.chars().count() >= 24 {
+                        break;
+                    }
+                    match ch {
+                        '\n' | '\r' | '\t' => buf.push(' '),
+                        c if c.is_control() => {}
+                        c => buf.push(c),
+                    }
+                }
+            }
+            self.renaming = Some(buf);
+            cx.notify();
+            return Handled::Consumed;
+        }
         match k.key {
             "enter" => {
                 self.renaming = Some(buf);
