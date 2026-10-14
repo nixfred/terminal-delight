@@ -137,6 +137,10 @@ reaches 1.0. Until then, `0.x` minor bumps may include breaking changes.
 
 ### Fixed
 
+- **The bench strip stops saying "Reading your answer" once the agent has
+  left.** The eight second reading window was not cleared when an agent quit
+  back to the shell, so the strip kept the words, and an agent started in that
+  pane inside the window was born on a rung that outranks a real question.
 - **Escape reaches a pane again after it closes the reader there.** Closing
   the FOCUS reader with Escape never told the pane it had been reading, so from
   then on Escape and the page keys in that pane went to a reader that was no
