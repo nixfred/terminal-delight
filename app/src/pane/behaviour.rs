@@ -2276,7 +2276,9 @@ fn sticky_draft(pane: &mut Pane) -> Option<String> {
 /// third caret drawn over the same terminal, and it was left out of that fix:
 /// ctrl+shift+v is still the pane's paste, so the clipboard is typed into
 /// whatever is running behind the paper, and ctrl+v and shift+insert reach
-/// the note and then vanish because its editor treats them as chords.
+/// the note and then vanish because its editor treats them as chords. The
+/// paper draws one line, so the line break in the last paste lands as a space:
+/// kept, it would hide every word after it.
 #[gpui::test]
 fn a_sticky_note_being_written_takes_a_paste_instead_of_the_shell(cx: &mut TestAppContext) {
     let mut pane = Pane::running(cx, "echo ready; exec cat");
@@ -2308,8 +2310,8 @@ fn a_sticky_note_being_written_takes_a_paste_instead_of_the_shell(cx: &mut TestA
     let rows = pane.rows();
     assert_eq!(
         draft.as_deref(),
-        Some("pastedalpha pastedbeta\npastedgamma"),
-        "all three chords paste onto the paper, in order, line break kept; shell saw:\n{}",
+        Some("pastedalpha pastedbeta pastedgamma"),
+        "all three chords paste onto the paper, in order, the line break a space; shell saw:\n{}",
         rows.join("\n")
     );
     assert!(

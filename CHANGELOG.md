@@ -141,8 +141,9 @@ reaches 1.0. Until then, `0.x` minor bumps may include breaking changes.
   not into the shell under it.** Ctrl+Shift+V was still the pane's paste, so it
   typed the clipboard into whatever ran behind the paper or the title, and a
   newline in it was a return; Ctrl+V and Shift+Insert reached the box and
-  vanished. All three now paste into the sticky note, or into the name (as one
-  line), the way a note in the square already did.
+  vanished. All three now paste into the sticky note or the name, the way a
+  note in the square already did, and as one line: a line break or tab becomes
+  a space, because the paper draws only its first line and a name has one.
 - **Escape reaches a pane again after it closes the reader there.** Closing
   the FOCUS reader with Escape never told the pane it had been reading, so from
   then on Escape and the page keys in that pane went to a reader that was no

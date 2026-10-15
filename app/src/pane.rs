@@ -6246,11 +6246,16 @@ impl TerminalView {
         // takes. ctrl+shift+v used to stay the pane's, and the pane typed the
         // clipboard into the shell under the note; ctrl+v and shift+insert
         // reached here and then vanished, because `apply` drops ctrl chords
-        // and has no arm for insert.
+        // and has no arm for insert. The paper draws one line, so the paste
+        // arrives as one: typing can never put a line break here, since Enter
+        // posts the note.
         let m = &ks.modifiers;
         if crate::workbench::is_paste_chord(ks.key.as_str(), m.control, m.shift) {
             if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                edit.buf.insert_capped(&text, crate::sticky::MAX_CHARS);
+                edit.buf.insert_capped(
+                    &crate::workbench::pasted_as_one_line(&text),
+                    crate::sticky::MAX_CHARS,
+                );
             }
             cx.notify();
             return true;
@@ -6591,17 +6596,13 @@ impl TerminalView {
         let m = &ks.modifiers;
         if crate::workbench::is_paste_chord(k.key, m.control, m.shift) {
             if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                // A name is one line: a line break or tab in the clipboard
-                // becomes a space, and any other control character is dropped.
-                for ch in text.chars() {
+                // A name is one line, kept to the 24 characters a typed name
+                // stops at.
+                for ch in crate::workbench::pasted_as_one_line(&text).chars() {
                     if buf.chars().count() >= 24 {
                         break;
                     }
-                    match ch {
-                        '\n' | '\r' | '\t' => buf.push(' '),
-                        c if c.is_control() => {}
-                        c => buf.push(c),
-                    }
+                    buf.push(ch);
                 }
             }
             self.renaming = Some(buf);
