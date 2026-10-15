@@ -3312,3 +3312,50 @@ fn a_deliverable_line_read_from_the_transcript_is_kept_like_one_read_off_the_scr
     pane.view.update(pane.cx, |v, cx| v.present(again, cx));
     assert_eq!(rebuilt(&mut pane), said, "the same line, filed once");
 }
+
+/// The strip stops saying an agent is reading an answer once that agent has
+/// left, and the next agent in the pane does not inherit the stamp.
+///
+/// The bench stamps the moment it types. For eight seconds that stamp makes
+/// the strip say "Reading your answer", and that rung outranks a question, so
+/// a question still on screen is not shown again. The stamp names the agent
+/// that was written to. Departure already drops every other latch that names
+/// that conversation. This one was left, so a pane whose agent has gone keeps
+/// the words until the window ends, and an agent started inside the window is
+/// born reading an answer nobody gave it.
+#[gpui::test]
+fn a_departed_agent_does_not_leave_the_bar_reading_an_answer(cx: &mut TestAppContext) {
+    let mut pane = Pane::running(cx, "exec cat");
+    pane.running_as(crate::pane::PaneMode::Claude);
+    pane.view.update(pane.cx, |v, cx| {
+        let now = crate::surfacefeed::now_ms();
+        v.wb_delivered_ms = Some(now.saturating_sub(1_000));
+        assert!(v.reading_answer(now), "the bench typed a second ago");
+        assert_eq!(
+            v.bench_status(),
+            crate::workbench::AgentState::Reading,
+            "the strip says the agent is reading that answer"
+        );
+        v.set_mode(crate::pane::PaneMode::Shell, cx);
+        assert!(
+            !v.reading_answer(now),
+            "the agent that was reading has left"
+        );
+        assert_ne!(
+            v.bench_status(),
+            crate::workbench::AgentState::Reading,
+            "a shell does not keep reading an answer"
+        );
+    });
+    pane.running_as(crate::pane::PaneMode::Claude);
+    let (reading, state) = pane.read(|v| {
+        let now = crate::surfacefeed::now_ms();
+        (v.reading_answer(now), v.bench_status())
+    });
+    assert!(!reading, "the next agent does not inherit the stamp");
+    assert_ne!(
+        state,
+        crate::workbench::AgentState::Reading,
+        "the next agent is not born reading the answer the last one was given"
+    );
+}

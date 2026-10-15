@@ -4232,6 +4232,13 @@ impl TerminalView {
             // it is one of four ways an agent leaves a pane and the only one
             // that goes through the strip.
             self.wb_paused_ms = None;
+            // `wb_delivered_ms` is the eight-second window in which the strip
+            // says "Reading your answer", and that rung outranks a question.
+            // It names the agent the bench just typed to. Left set, a pane
+            // whose agent has gone keeps those words until the window ends,
+            // and the next agent started inside it is born reading, so a
+            // question it asks is not shown.
+            self.wb_delivered_ms = None;
             // And the HUD token-accounting trio, for the same reason as
             // `wb_paused_ms`: nothing else corrects them, because
             // `accrue_tokens` returns early on a non-agent pane and so never
@@ -11271,6 +11278,10 @@ mod tests {
             "wb_live_q",
             "wb_queued",
             "wb_paused_ms",
+            // The reading window. A stamp left here keeps the strip saying
+            // "Reading your answer" after the agent has gone, and the next
+            // agent in this pane is born on that rung, which hides a question.
+            "wb_delivered_ms",
             // The four the transcript store brought, added when this branch
             // met main. They were already cleared correctly by the author who
             // added them — the point is that the LIST did not know, and a list

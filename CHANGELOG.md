@@ -137,6 +137,10 @@ reaches 1.0. Until then, `0.x` minor bumps may include breaking changes.
 
 ### Fixed
 
+- **The bench strip stops saying "Reading your answer" once the agent has
+  left.** The eight second reading window was not cleared when an agent quit
+  back to the shell, so the strip kept the words, and an agent started in that
+  pane inside the window was born on a rung that outranks a real question.
 - **An MCP pid too big for 32 bits is refused instead of landing on another
   pane.** The pid was cut to its low 32 bits, so `4294967396` addressed pid
   100: `pane_events`, `get_pane_config`, `set_pane_config`, `leave_note`,
