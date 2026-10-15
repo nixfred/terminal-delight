@@ -142,6 +142,11 @@ reaches 1.0. Until then, `0.x` minor bumps may include breaking changes.
   100: `pane_events`, `get_pane_config`, `set_pane_config`, `leave_note`,
   `declare_deliverable` and `present_surface` could read or change a pane the
   caller never named. They now answer "pid is out of range".
+- **A program cannot make a pane hold an unfinished escape forever.** The text
+  guard capped a half-arrived control sequence at 64 bytes, but ESC followed by
+  intermediate bytes (spaces, say) was held for as long as it stayed open, and
+  every read copied and rescanned the whole pile with the terminal locked. Those
+  bytes are never rewritten, so they now pass through as they arrive.
 - **Escape reaches a pane again after it closes the reader there.** Closing
   the FOCUS reader with Escape never told the pane it had been reading, so from
   then on Escape and the page keys in that pane went to a reader that was no
